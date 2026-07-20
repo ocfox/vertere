@@ -6,7 +6,9 @@ appears in a floating bubble next to your work.
 Translation is done by a multimodal model through any OpenAI-compatible API —
 [OpenRouter](https://openrouter.ai) by default: the screenshot goes to the
 model as an image, and it returns both the translation and a transcription of
-the source text. There is no separate OCR step.
+the source text.
+
+<img width="3840" height="2160" alt="vertere" src="https://github.com/user-attachments/assets/39409a81-046f-4735-a956-31a4694d3a4c" />
 
 ## Requirements
 
@@ -48,7 +50,7 @@ you would to a person. `Simplified Chinese` says what `zh` leaves the model to
 guess. `Unless already in it` is what to use when the source is already in that
 language — set it to your other language and the direction takes care of itself.
 
-The API key is read from `API_KEY` and is never stored in the database.
+The API key is read from `API_KEY`.
 `Endpoint` defaults to OpenRouter but takes any OpenAI-compatible base URL.
 
 ## Use
