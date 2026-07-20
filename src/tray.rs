@@ -15,6 +15,14 @@ use ksni::{MenuItem, Tray, TrayMethods};
 
 use crate::APP_ID;
 
+/// `$out/share/icons`, derived from the running binary's own location so the
+/// tray icon resolves regardless of the host's XDG_DATA_DIRS.
+fn icons_dir() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let out = exe.parent()?.parent()?;
+    Some(out.join("share/icons").to_str()?.to_owned())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Shot,
@@ -56,6 +64,14 @@ impl Tray for Menu {
 
     fn icon_name(&self) -> String {
         APP_ID.into()
+    }
+
+    // Tray hosts resolve icon_name() by searching the icon theme paths their
+    // own process picked up at startup, which for a systemd user service may
+    // predate this package landing in XDG_DATA_DIRS. Point at our own install
+    // directly instead of hoping the host's environment is fresh.
+    fn icon_theme_path(&self) -> String {
+        icons_dir().unwrap_or_default()
     }
 
     // Left-clicking a tray icon has no obvious single meaning here, so it opens
