@@ -34,60 +34,9 @@
               "rustfmt"
             ];
           };
-
-          # Resolved at runtime through PATH rather than baked in, so the wrapper
-          # below is the single place that decides which ones get used.
-          runtimeTools = [
-            pkgs.grim
-            pkgs.slurp
-            pkgs.wl-clipboard
-          ];
         in
         {
-          packages.default = pkgs.rustPlatform.buildRustPackage {
-            pname = "vertere";
-            version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
-            src = pkgs.lib.cleanSource ./.;
-            cargoLock.lockFile = ./Cargo.lock;
-
-            nativeBuildInputs = [
-              pkgs.pkg-config
-              pkgs.wrapGAppsHook4
-            ];
-
-            buildInputs = [
-              pkgs.gtk4
-              pkgs.gtk4-layer-shell
-              pkgs.glib
-              pkgs.cairo
-              pkgs.pango
-              pkgs.gdk-pixbuf
-              pkgs.graphene
-              pkgs.wayland
-            ];
-
-            # No unit file here: the NixOS module below defines it natively, so
-            # that ExecStart can pick up `--config` and the environment file.
-            # Shipping a second copy would only give the two a chance to drift.
-            postInstall = ''
-              mkdir -p $out/share
-              cp -r data/applications data/icons -t $out/share/
-            '';
-
-            preFixup = ''
-              gappsWrapperArgs+=(
-                --prefix PATH : ${pkgs.lib.makeBinPath runtimeTools}
-              )
-            '';
-
-            meta = {
-              description = "wlroots translator";
-              homepage = "https://github.com/ocfox/vertere";
-              license = pkgs.lib.licenses.mit;
-              mainProgram = "vertere";
-              platforms = pkgs.lib.platforms.linux;
-            };
-          };
+          packages.default = pkgs.callPackage ./nix/package.nix { };
 
           devShells.default = pkgs.mkShell {
             # Tools that run on the build machine.
@@ -127,6 +76,10 @@
 
           formatter = pkgs.nixfmt-tree;
         };
+
+      flake.overlays.default = final: prev: {
+        vertere = final.callPackage ./nix/package.nix { };
+      };
 
       flake.nixosModules.default =
         {
