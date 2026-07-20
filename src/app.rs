@@ -111,7 +111,7 @@ pub fn shot(application: &gtk4::Application) {
     match capture::screenshot() {
         // Cancelling the selection is a decision, not a failure.
         Ok(None) => {}
-        Ok(Some(png)) => run(application, Kind::Shot, Input::Image(png)),
+        Ok(Some(png)) => run(application, Kind::Shot, Input::Image(Arc::from(png))),
         Err(err) => fail(application, err),
     }
 }
@@ -139,9 +139,18 @@ pub fn settings_window(application: &gtk4::Application) {
 }
 
 pub fn history_window(application: &gtk4::Application) {
+    // Opened once and reused for every search, rather than per keystroke: the
+    // search box re-queries on each change, and a fresh connection per
+    // keystroke buys nothing but repeated migration checks.
+    let store = open_store().map_err(|err| format!("{err:#}"));
     // 200 rows is more than anyone scrolls; the search box is the way to reach
     // anything older.
-    ui::show_history(application, |query| open_store()?.search(query, 200));
+    ui::show_history(application, move |query| {
+        store
+            .as_ref()
+            .map_err(|err| anyhow!("{err}"))?
+            .search(query, 200)
+    });
 }
 
 fn text(application: &gtk4::Application, kind: Kind, read: Result<String>, when_empty: &str) {
@@ -153,7 +162,7 @@ fn text(application: &gtk4::Application, kind: Kind, read: Result<String>, when_
 }
 
 enum Input {
-    Image(Vec<u8>),
+    Image(Arc<[u8]>),
     Text(String),
 }
 
@@ -173,7 +182,7 @@ fn run(application: &gtk4::Application, kind: Kind, input: Input) {
     };
 
     let png = match &input {
-        Input::Image(png) => Some(png.clone()),
+        Input::Image(png) => Some(Arc::clone(png)),
         Input::Text(_) => None,
     };
     let deltas = translate(Arc::clone(&session), input);
