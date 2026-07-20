@@ -1,0 +1,17 @@
+#
+# NoDisplay because there is nothing to launch from a menu: every command needs
+# a key binding or a running daemon. It exists so the compositor and portals can
+# resolve the application id to a name and icon.
+
+[Desktop Entry]
+Type=Application
+Name=Vertere
+Comment=Translate a screen region, the clipboard or the selection
+Exec=vertere shot
+Icon=me.ocfox.Vertere
+Terminal=false
+NoDisplay=true
+# `Translation` would be the apt additional category, but the spec pairs it with
+# Development; the Keywords below cover discovery without the mismatch.
+Categories=Utility;
+Keywords=translate;translation;ocr;screenshot;clipboard;
