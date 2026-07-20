@@ -11,7 +11,7 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
-use crate::store::{DEFAULT_FALLBACK_LANG, DEFAULT_TARGET_LANG, Entry, Settings};
+use crate::store::{DEFAULT_BASE_URL, DEFAULT_FALLBACK_LANG, DEFAULT_TARGET_LANG, Entry, Settings};
 use crate::translate::Reply;
 use crate::window_state::{self, Position, Screen};
 
@@ -322,6 +322,7 @@ pub fn show_settings(application: &gtk4::Application, settings: Settings) {
     let model = entry(&settings.model, "vendor/model-name");
     let target = entry(&settings.target_lang, DEFAULT_TARGET_LANG);
     let fallback = entry(&settings.fallback_lang, DEFAULT_FALLBACK_LANG);
+    let base_url = entry(&settings.base_url, DEFAULT_BASE_URL);
 
     let rows = gtk4::Grid::builder()
         .row_spacing(8)
@@ -335,7 +336,7 @@ pub fn show_settings(application: &gtk4::Application, settings: Settings) {
         (
             "Model",
             &model,
-            "An OpenRouter slug. It must accept image input.",
+            "A model slug from the endpoint below. It must accept image input.",
         ),
         (
             "Translate into",
@@ -346,6 +347,11 @@ pub fn show_settings(application: &gtk4::Application, settings: Settings) {
             "Unless already in it",
             &fallback,
             "Then translate into this instead.",
+        ),
+        (
+            "Endpoint",
+            &base_url,
+            "Any OpenAI-compatible API. Defaults to OpenRouter's.",
         ),
     ]
     .into_iter()
@@ -367,7 +373,12 @@ pub fn show_settings(application: &gtk4::Application, settings: Settings) {
     save.add_css_class("suggested-action");
     save.connect_clicked({
         let window = window.clone();
-        let (model, target, fallback) = (model.clone(), target.clone(), fallback.clone());
+        let (model, target, fallback, base_url) = (
+            model.clone(),
+            target.clone(),
+            fallback.clone(),
+            base_url.clone(),
+        );
         let status = status.clone();
         // Rebuilt per click rather than mutated in place: the button hands out
         // an `Fn`, and the fields the view does not show must survive untouched.
@@ -377,6 +388,7 @@ pub fn show_settings(application: &gtk4::Application, settings: Settings) {
                 model: model.text().trim().to_owned(),
                 target_lang: target.text().trim().to_owned(),
                 fallback_lang: fallback.text().trim().to_owned(),
+                base_url: base_url.text().trim().to_owned(),
                 ..base.clone()
             };
 

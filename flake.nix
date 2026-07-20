@@ -112,9 +112,9 @@
               default = null;
               example = "/run/secrets/vertere";
               description = ''
-                File holding `OPENROUTER_API_KEY=...`, read at startup. Keep it
-                out of the Nix store — point at a secret manager's output or a
-                path with mode 0600.
+                File holding `API_KEY=...`, read at startup. Keep it out of the
+                Nix store — point at a secret manager's output or a path with
+                mode 0600.
               '';
             };
           };

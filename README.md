@@ -3,17 +3,17 @@
 Translate a screen region, the clipboard, or the selected text. The result
 appears in a floating bubble next to your work.
 
-Translation is done by a multimodal model through
-[OpenRouter](https://openrouter.ai): the screenshot goes to the model as an
-image, and it returns both the translation and a transcription of the source
-text. There is no separate OCR step.
+Translation is done by a multimodal model through any OpenAI-compatible API —
+[OpenRouter](https://openrouter.ai) by default: the screenshot goes to the
+model as an image, and it returns both the translation and a transcription of
+the source text. There is no separate OCR step.
 
 ## Requirements
 
 - A compositor implementing `wlr-layer-shell` and `wlr-screencopy`: sway,
   Hyprland, river, Wayfire, niri. GNOME implements neither.
 - `grim`, `slurp`, `wl-clipboard`. The Nix package wraps these in.
-- An OpenRouter API key, and a model that accepts image input.
+- An API key for your endpoint, and a model that accepts image input.
 
 ## Install
 
@@ -28,7 +28,7 @@ NixOS, with the flake:
 
   services.vertere = {
     enable = true;
-    environmentFile = "/run/secrets/vertere";  # OPENROUTER_API_KEY=...
+    environmentFile = "/run/secrets/vertere";  # API_KEY=...
   };
 }
 ```
@@ -48,8 +48,8 @@ you would to a person. `Simplified Chinese` says what `zh` leaves the model to
 guess. `Unless already in it` is what to use when the source is already in that
 language — set it to your other language and the direction takes care of itself.
 
-The API key is read from `OPENROUTER_API_KEY` and is never stored in the
-database.
+The API key is read from `API_KEY` and is never stored in the database.
+`Endpoint` defaults to OpenRouter but takes any OpenAI-compatible base URL.
 
 ## Use
 

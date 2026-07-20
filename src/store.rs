@@ -16,14 +16,16 @@ const DEFAULT_IMAGE_CACHE_LIMIT: u64 = 200;
 /// value it greys out mean the same thing.
 pub const DEFAULT_TARGET_LANG: &str = "Simplified Chinese";
 pub const DEFAULT_FALLBACK_LANG: &str = "English";
+/// OpenRouter's own endpoint, used unless a compatible one is set instead.
+pub const DEFAULT_BASE_URL: &str = "https://openrouter.ai/api/v1";
 
 /// Everything the user can change, edited through the settings view.
 ///
-/// The API key is deliberately absent: it stays in `OPENROUTER_API_KEY`, since
-/// a secret does not belong in a database that also holds translated text.
+/// The API key is deliberately absent: it stays in `API_KEY`, since a secret
+/// does not belong in a database that also holds translated text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
-    /// OpenRouter model slug. Must accept image input.
+    /// Model slug, in the vendor's own naming. Must accept image input.
     pub model: String,
     /// Language to translate into, named the way you would say it to a person.
     ///
@@ -33,6 +35,9 @@ pub struct Settings {
     /// Language to use when the source is already in `target_lang`. Empty to
     /// always translate into `target_lang`.
     pub fallback_lang: String,
+    /// The OpenAI-compatible endpoint to send requests to. Empty for
+    /// OpenRouter's own.
+    pub base_url: String,
     pub keep_images: bool,
     /// How many images to keep in the cache before the oldest are deleted.
     pub image_cache_limit: u64,
@@ -44,6 +49,7 @@ impl Default for Settings {
             model: String::new(),
             target_lang: String::new(),
             fallback_lang: String::new(),
+            base_url: String::new(),
             keep_images: false,
             image_cache_limit: DEFAULT_IMAGE_CACHE_LIMIT,
         }
@@ -53,8 +59,8 @@ impl Default for Settings {
 impl Settings {
     /// Whether these are complete enough to translate with.
     ///
-    /// Only the model has to be filled in: it names something on OpenRouter that
-    /// cannot be guessed, while the languages have defaults.
+    /// Only the model has to be filled in: it names something the endpoint
+    /// serves that cannot be guessed, while everything else has a default.
     pub fn is_usable(&self) -> bool {
         !self.model.trim().is_empty()
     }
@@ -67,6 +73,11 @@ impl Settings {
     /// The language to use when the source is already in [`Self::target`].
     pub fn fallback(&self) -> &str {
         non_empty(&self.fallback_lang).unwrap_or(DEFAULT_FALLBACK_LANG)
+    }
+
+    /// The endpoint to send requests to, defaulted.
+    pub fn base_url(&self) -> &str {
+        non_empty(&self.base_url).unwrap_or(DEFAULT_BASE_URL)
     }
 }
 
@@ -207,6 +218,7 @@ impl Store {
                 "model" => settings.model = value,
                 "target_lang" => settings.target_lang = value,
                 "fallback_lang" => settings.fallback_lang = value,
+                "base_url" => settings.base_url = value,
                 "keep_images" => settings.keep_images = value == "1",
                 "image_cache_limit" => {
                     settings.image_cache_limit = value.parse().unwrap_or(DEFAULT_IMAGE_CACHE_LIMIT);
@@ -223,6 +235,7 @@ impl Store {
             ("model", settings.model.clone()),
             ("target_lang", settings.target_lang.clone()),
             ("fallback_lang", settings.fallback_lang.clone()),
+            ("base_url", settings.base_url.clone()),
             ("keep_images", u8::from(settings.keep_images).to_string()),
             ("image_cache_limit", settings.image_cache_limit.to_string()),
         ] {
@@ -521,6 +534,7 @@ mod setting_tests {
             model: "vendor/model".into(),
             target_lang: "Simplified Chinese".into(),
             fallback_lang: "English".into(),
+            base_url: "https://example.com/v1".into(),
             keep_images: true,
             image_cache_limit: 50,
         };
@@ -563,6 +577,18 @@ mod setting_tests {
         let settings = Settings::default();
         assert_eq!(settings.target(), DEFAULT_TARGET_LANG);
         assert_eq!(settings.fallback(), DEFAULT_FALLBACK_LANG);
+    }
+
+    #[test]
+    fn an_empty_base_url_falls_back_to_openrouter() {
+        let settings = Settings::default();
+        assert_eq!(settings.base_url(), DEFAULT_BASE_URL);
+
+        let settings = Settings {
+            base_url: "https://example.com/v1".into(),
+            ..Settings::default()
+        };
+        assert_eq!(settings.base_url(), "https://example.com/v1");
     }
 
     #[test]

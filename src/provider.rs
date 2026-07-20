@@ -1,4 +1,4 @@
-//! Talking to OpenRouter.
+//! Talking to an OpenAI-compatible chat endpoint, OpenRouter by default.
 //!
 //! The `openrouter_rs` types stay inside this module: it is a 0.x crate that
 //! ships often, and a leak would spread every future breaking change across the
@@ -31,8 +31,9 @@ impl Provider {
     pub fn new(settings: &Settings, api_key: &str) -> Result<Self> {
         let client = OpenRouterClient::builder()
             .api_key(api_key)
+            .base_url(settings.base_url())
             .build()
-            .context("cannot build the OpenRouter client")?;
+            .context("cannot build the client")?;
         Ok(Self {
             client,
             model: settings.model.clone(),
@@ -50,10 +51,10 @@ impl Provider {
             .models()
             .list()
             .await
-            .context("cannot list OpenRouter models")?;
+            .context("cannot list models")?;
 
         let Some(model) = models.iter().find(|m| m.id == self.model) else {
-            bail!("no such model on OpenRouter: {}", self.model);
+            bail!("no such model: {}", self.model);
         };
         if !accepts_images(model) {
             bail!("model {} does not accept image input", self.model);
@@ -94,7 +95,7 @@ impl Provider {
             .chat()
             .stream(&request)
             .await
-            .context("cannot reach OpenRouter")?;
+            .context("cannot reach the endpoint")?;
 
         Ok(stream
             .filter_map(|chunk| async move {

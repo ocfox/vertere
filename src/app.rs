@@ -72,11 +72,11 @@ fn session(settings: Settings) -> Result<Arc<Session>> {
     Ok(session)
 }
 
-/// Environment variable holding the OpenRouter API key.
+/// Environment variable holding the API key for the configured endpoint.
 ///
 /// Kept out of the database: a secret does not belong next to translated text,
 /// and this is the one value a service manager can supply without a UI.
-pub const API_KEY_ENV: &str = "OPENROUTER_API_KEY";
+pub const API_KEY_ENV: &str = "API_KEY";
 
 fn api_key() -> Result<String> {
     let key = std::env::var(API_KEY_ENV).unwrap_or_default();
