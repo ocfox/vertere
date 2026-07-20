@@ -2,10 +2,10 @@
 name = "vertere"
 version = "0.1.0"
 edition = "2024"
-description = "wlroots translator"
+description = "Wayland translator"
 repository = "https://github.com/ocfox/vertere"
 license = "MIT"
-keywords = ["translation", "wayland", "wlroots", "sway", "ocr"]
+keywords = ["translation", "wayland", "layer-shell", "sway", "ocr"]
 categories = ["command-line-utilities"]
 
 [dependencies]

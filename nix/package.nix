@@ -61,7 +61,7 @@ rustPlatform.buildRustPackage {
   '';
 
   meta = {
-    description = "wlroots translator";
+    description = "Wayland translator";
     homepage = "https://github.com/ocfox/vertere";
     license = lib.licenses.mit;
     mainProgram = "vertere";

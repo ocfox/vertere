@@ -10,8 +10,8 @@ text. There is no separate OCR step.
 
 ## Requirements
 
-- A wlroots-based compositor: sway, Hyprland, river, Wayfire. The bubble uses
-  `wlr-layer-shell`, which GNOME does not implement.
+- A compositor implementing `wlr-layer-shell` and `wlr-screencopy`: sway,
+  Hyprland, river, Wayfire, niri. GNOME implements neither.
 - `grim`, `slurp`, `wl-clipboard`. The Nix package wraps these in.
 - An OpenRouter API key, and a model that accepts image input.
 

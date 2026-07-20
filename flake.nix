@@ -1,5 +1,5 @@
 {
-  description = "vertere — wlroots translator";
+  description = "vertere — Wayland translator";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
