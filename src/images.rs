@@ -23,10 +23,13 @@ pub fn save(dir: &Path, png: &[u8]) -> Result<String> {
     Ok(name)
 }
 
-/// Deletes the oldest images until the directory fits within `limit_bytes`.
-pub fn prune(dir: &Path, limit_bytes: u64) -> Result<()> {
-    let mut images = Vec::new();
-    let mut total = 0;
+/// Deletes the oldest images until at most `limit` remain.
+///
+/// Ages come from the name, not a stat: `save` names each file
+/// `{secs}-{nanos}.png`, so sorting names sorts by age without touching the
+/// filesystem beyond the directory listing itself.
+pub fn prune(dir: &Path, limit: usize) -> Result<()> {
+    let mut names = Vec::new();
 
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -36,25 +39,19 @@ pub fn prune(dir: &Path, limit_bytes: u64) -> Result<()> {
 
     for entry in entries {
         let entry = entry?;
-        let meta = entry.metadata()?;
-        if !meta.is_file() {
-            continue;
+        if entry.file_type()?.is_file() {
+            names.push(entry.file_name());
         }
-        total += meta.len();
-        images.push((meta.modified()?, meta.len(), entry.path()));
     }
 
-    if total <= limit_bytes {
+    if names.len() <= limit {
         return Ok(());
     }
 
-    images.sort_by_key(|(modified, _, _)| *modified);
-    for (_, size, path) in images {
-        if total <= limit_bytes {
-            break;
-        }
+    names.sort();
+    for name in &names[..names.len() - limit] {
+        let path = dir.join(name);
         fs::remove_file(&path).with_context(|| format!("cannot delete {}", path.display()))?;
-        total -= size;
     }
     Ok(())
 }
@@ -84,11 +81,6 @@ mod tests {
         }
     }
 
-    fn set_age(path: &Path, seconds_ago: u64) {
-        let when = SystemTime::now() - std::time::Duration::from_secs(seconds_ago);
-        filetime::set_file_mtime(path, filetime::FileTime::from_system_time(when)).unwrap();
-    }
-
     #[test]
     fn saves_an_image() {
         let dir = TempDir::new("save");
@@ -100,7 +92,7 @@ mod tests {
     #[test]
     fn pruning_an_absent_directory_is_not_an_error() {
         let dir = TempDir::new("absent");
-        assert!(prune(&dir.0, 1024).is_ok());
+        assert!(prune(&dir.0, 1).is_ok());
     }
 
     #[test]
@@ -108,7 +100,7 @@ mod tests {
         let dir = TempDir::new("under");
         let name = save(&dir.0, &[0u8; 100]).unwrap();
 
-        prune(&dir.0, 1024).unwrap();
+        prune(&dir.0, 2).unwrap();
         assert!(dir.0.join(&name).is_file());
     }
 
@@ -117,9 +109,8 @@ mod tests {
         let dir = TempDir::new("oldest");
         let old = save(&dir.0, &[0u8; 100]).unwrap();
         let new = save(&dir.0, &[0u8; 100]).unwrap();
-        set_age(&dir.0.join(&old), 60);
 
-        prune(&dir.0, 150).unwrap();
+        prune(&dir.0, 1).unwrap();
 
         assert!(!dir.0.join(&old).is_file());
         assert!(dir.0.join(&new).is_file());

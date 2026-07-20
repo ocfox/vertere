@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, OptionalExtension, params};
 
-const DEFAULT_IMAGE_CACHE_MB: u64 = 200;
+const DEFAULT_IMAGE_CACHE_LIMIT: u64 = 200;
 
 /// Used when the corresponding field is left empty.
 ///
@@ -34,7 +34,8 @@ pub struct Settings {
     /// always translate into `target_lang`.
     pub fallback_lang: String,
     pub keep_images: bool,
-    pub image_cache_mb: u64,
+    /// How many images to keep in the cache before the oldest are deleted.
+    pub image_cache_limit: u64,
 }
 
 impl Default for Settings {
@@ -44,7 +45,7 @@ impl Default for Settings {
             target_lang: String::new(),
             fallback_lang: String::new(),
             keep_images: false,
-            image_cache_mb: DEFAULT_IMAGE_CACHE_MB,
+            image_cache_limit: DEFAULT_IMAGE_CACHE_LIMIT,
         }
     }
 }
@@ -207,8 +208,8 @@ impl Store {
                 "target_lang" => settings.target_lang = value,
                 "fallback_lang" => settings.fallback_lang = value,
                 "keep_images" => settings.keep_images = value == "1",
-                "image_cache_mb" => {
-                    settings.image_cache_mb = value.parse().unwrap_or(DEFAULT_IMAGE_CACHE_MB);
+                "image_cache_limit" => {
+                    settings.image_cache_limit = value.parse().unwrap_or(DEFAULT_IMAGE_CACHE_LIMIT);
                 }
                 _ => {}
             }
@@ -223,7 +224,7 @@ impl Store {
             ("target_lang", settings.target_lang.clone()),
             ("fallback_lang", settings.fallback_lang.clone()),
             ("keep_images", u8::from(settings.keep_images).to_string()),
-            ("image_cache_mb", settings.image_cache_mb.to_string()),
+            ("image_cache_limit", settings.image_cache_limit.to_string()),
         ] {
             tx.execute(
                 "INSERT INTO setting (key, value) VALUES (?1, ?2)
@@ -521,7 +522,7 @@ mod setting_tests {
             target_lang: "Simplified Chinese".into(),
             fallback_lang: "English".into(),
             keep_images: true,
-            image_cache_mb: 50,
+            image_cache_limit: 50,
         };
         store.save_settings(&settings).unwrap();
         assert_eq!(store.settings().unwrap(), settings);
@@ -587,18 +588,18 @@ mod setting_tests {
     }
 
     #[test]
-    fn a_malformed_cache_size_falls_back_to_the_default() {
+    fn a_malformed_cache_limit_falls_back_to_the_default() {
         let store = Store::open_in_memory().unwrap();
         store
             .db
             .execute(
-                "INSERT INTO setting (key, value) VALUES ('image_cache_mb', 'lots')",
+                "INSERT INTO setting (key, value) VALUES ('image_cache_limit', 'lots')",
                 [],
             )
             .unwrap();
         assert_eq!(
-            store.settings().unwrap().image_cache_mb,
-            DEFAULT_IMAGE_CACHE_MB
+            store.settings().unwrap().image_cache_limit,
+            DEFAULT_IMAGE_CACHE_LIMIT
         );
     }
 }

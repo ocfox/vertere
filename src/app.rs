@@ -238,7 +238,7 @@ fn record(session: &Session, kind: Kind, reply: &Reply, png: Option<&[u8]>) -> R
         Some(png) => {
             let dir = xdg::cache_dir()?.join("images");
             let name = images::save(&dir, png)?;
-            images::prune(&dir, session.settings.image_cache_mb * 1024 * 1024)?;
+            images::prune(&dir, session.settings.image_cache_limit as usize)?;
             Some(name)
         }
         None => None,
