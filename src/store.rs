@@ -78,6 +78,7 @@ fn non_empty(value: &str) -> Option<&str> {
 pub enum Kind {
     Shot,
     Clip,
+    Select,
 }
 
 impl fmt::Display for Kind {
@@ -85,6 +86,7 @@ impl fmt::Display for Kind {
         f.write_str(match self {
             Self::Shot => "shot",
             Self::Clip => "clip",
+            Self::Select => "select",
         })
     }
 }
@@ -96,6 +98,7 @@ impl FromStr for Kind {
         match s {
             "shot" => Ok(Self::Shot),
             "clip" => Ok(Self::Clip),
+            "select" => Ok(Self::Select),
             other => bail!("unknown kind in history: {other}"),
         }
     }

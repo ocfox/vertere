@@ -117,11 +117,21 @@ pub fn shot(application: &gtk4::Application) {
 }
 
 pub fn clip(application: &gtk4::Application) {
-    text(application, capture::clipboard(), "the clipboard is empty");
+    text(
+        application,
+        Kind::Clip,
+        capture::clipboard(),
+        "the clipboard is empty",
+    );
 }
 
-pub fn sel(application: &gtk4::Application) {
-    text(application, capture::selection(), "nothing is selected");
+pub fn select(application: &gtk4::Application) {
+    text(
+        application,
+        Kind::Select,
+        capture::selection(),
+        "nothing is selected",
+    );
 }
 
 pub fn settings_window(application: &gtk4::Application) {
@@ -134,10 +144,10 @@ pub fn history_window(application: &gtk4::Application) {
     ui::show_history(application, |query| open_store()?.search(query, 200));
 }
 
-fn text(application: &gtk4::Application, read: Result<String>, when_empty: &str) {
+fn text(application: &gtk4::Application, kind: Kind, read: Result<String>, when_empty: &str) {
     match read {
         Ok(text) if text.trim().is_empty() => fail(application, anyhow!("{when_empty}")),
-        Ok(text) => run(application, Kind::Clip, Input::Text(text)),
+        Ok(text) => run(application, kind, Input::Text(text)),
         Err(err) => fail(application, err),
     }
 }
@@ -263,7 +273,7 @@ fn start_tray(application: &gtk4::Application) {
             match action {
                 tray::Action::Shot => shot(&application),
                 tray::Action::Clip => clip(&application),
-                tray::Action::Selection => sel(&application),
+                tray::Action::Selection => select(&application),
                 tray::Action::History => history_window(&application),
                 tray::Action::Settings => settings_window(&application),
                 tray::Action::Quit => application.quit(),

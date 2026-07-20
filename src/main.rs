@@ -10,7 +10,7 @@ usage:
     vertere daemon                   run in the background
     vertere shot                     capture a screen region and translate it
     vertere clip                     translate the clipboard contents
-    vertere sel                      translate the selected text, no copy needed
+    vertere select                   translate the selected text, no copy needed
     vertere settings                 change the model and languages
     vertere history                  browse and search past translations
 
@@ -80,8 +80,8 @@ fn dispatch(application: &gtk4::Application, arguments: &[String]) -> Result<()>
             app::clip(application);
             Ok(())
         }
-        ["sel"] => {
-            app::sel(application);
+        ["select"] => {
+            app::select(application);
             Ok(())
         }
         ["-h"] | ["--help"] => {

@@ -53,20 +53,16 @@ database.
 
 ## Use
 
-```
-bindsym $mod+t       exec vertere shot
-bindsym $mod+Shift+t exec vertere clip
-bindsym $mod+y       exec vertere sel
-```
+Bind each command to a key in your compositor's config.
 
 - `shot` — drag a region, translate the text in it
 - `clip` — translate the clipboard
-- `sel` — translate the selected text, no copy needed
+- `select` — translate the selected text, no copy needed
 - `settings`, `history` — the two windows, also reachable from the tray
 
-`sel` reads the primary selection, which most GTK and Qt applications and
-terminals fill on selection. Some, notably a few Electron applications, do not;
-use `clip` there.
+`select` reads the primary selection, which most GTK and Qt applications and
+terminals fill just by selecting text. Some, notably a few Electron
+applications, do not; use `clip` there.
 
 The bubble closes on Escape, or on its own after eight seconds if you never
 touch it. Moving the pointer over it, dragging it, or selecting its text all
