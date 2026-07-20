@@ -53,11 +53,16 @@ where
     S: Stream<Item = Result<String>> + 'static,
     F: FnOnce(Reply) + 'static,
 {
-    // Once per process; repeated calls would stack duplicate providers.
-    static CSS_LOADED: std::sync::Once = std::sync::Once::new();
-    CSS_LOADED.call_once(load_css);
+    ensure_css_loaded();
 
     build(application, deltas, on_done);
+}
+
+/// Loads the CSS once per process; repeated calls would stack duplicate
+/// providers.
+fn ensure_css_loaded() {
+    static CSS_LOADED: std::sync::Once = std::sync::Once::new();
+    CSS_LOADED.call_once(load_css);
 }
 
 fn load_css() {
@@ -133,16 +138,22 @@ where
     add_dismiss(&window, Rc::clone(&touched));
 
     window.present();
-    consume(
-        &window,
-        deltas,
+    let bubble = Bubble {
         translation,
         source,
         source_row,
         status,
-        touched,
-        on_done,
-    );
+    };
+    consume(&window, deltas, bubble, touched, on_done);
+}
+
+/// The bubble's content widgets, threaded through as one value rather than
+/// individually.
+struct Bubble {
+    translation: gtk4::Label,
+    source: gtk4::Label,
+    source_row: gtk4::Expander,
+    status: gtk4::Label,
 }
 
 fn monitor_of(window: &gtk4::ApplicationWindow) -> Option<gdk::Monitor> {
@@ -227,19 +238,7 @@ fn add_drag(window: &gtk4::ApplicationWindow, touched: Rc<Cell<bool>>) {
 }
 
 fn add_dismiss(window: &gtk4::ApplicationWindow, touched: Rc<Cell<bool>>) {
-    let keys = gtk4::EventControllerKey::new();
-    keys.connect_key_pressed({
-        let window = window.clone();
-        move |_, key, _, _| {
-            if key == gdk::Key::Escape {
-                remember(&window);
-                window.close();
-                return glib::Propagation::Stop;
-            }
-            glib::Propagation::Proceed
-        }
-    });
-    window.add_controller(keys);
+    close_on_escape_with(window, remember);
 
     // Hovering counts as interest even without a click, which covers reading a
     // long translation without touching anything.
@@ -248,14 +247,10 @@ fn add_dismiss(window: &gtk4::ApplicationWindow, touched: Rc<Cell<bool>>) {
     window.add_controller(motion);
 }
 
-#[allow(clippy::too_many_arguments)]
 fn consume<S, F>(
     window: &gtk4::ApplicationWindow,
     deltas: S,
-    translation: gtk4::Label,
-    source: gtk4::Label,
-    source_row: gtk4::Expander,
-    status: gtk4::Label,
+    bubble: Bubble,
     touched: Rc<Cell<bool>>,
     on_done: F,
 ) where
@@ -271,22 +266,22 @@ fn consume<S, F>(
             match delta {
                 Ok(delta) => reply.push(&delta),
                 Err(err) => {
-                    translation.set_label("");
-                    show_status(&status, &format!("Failed: {err:#}"));
+                    bubble.translation.set_label("");
+                    show_status(&bubble.status, &format!("Failed: {err:#}"));
                     return linger(window, touched);
                 }
             }
             // Whole-text updates rather than incremental ones: at this size the
             // cost is invisible and there is no render cursor to keep in step.
-            translation.set_label(reply.translation());
+            bubble.translation.set_label(reply.translation());
             if reply.has_source() && !reply.source().is_empty() {
-                source.set_label(reply.source());
-                source_row.set_visible(true);
+                bubble.source.set_label(reply.source());
+                bubble.source_row.set_visible(true);
             }
         }
 
         if reply.is_empty() {
-            show_status(&status, "No translation returned");
+            show_status(&bubble.status, "No translation returned");
             return linger(window, touched);
         }
         on_done(reply);
@@ -314,8 +309,7 @@ fn linger(window: gtk4::ApplicationWindow, touched: Rc<Cell<bool>>) {
 /// A window of its own rather than a control on the bubble: the bubble is read
 /// in a hurry and closes itself, which is the opposite of what editing needs.
 pub fn show_settings(application: &gtk4::Application, settings: Settings) {
-    static CSS_LOADED: std::sync::Once = std::sync::Once::new();
-    CSS_LOADED.call_once(load_css);
+    ensure_css_loaded();
 
     let window = gtk4::ApplicationWindow::builder()
         .application(application)
@@ -422,11 +416,20 @@ fn entry(value: &str, placeholder: &str) -> gtk4::Entry {
 }
 
 fn close_on_escape(window: &gtk4::ApplicationWindow) {
+    close_on_escape_with(window, |_| {});
+}
+
+/// Closes `window` on Escape, running `before_close` first.
+fn close_on_escape_with(
+    window: &gtk4::ApplicationWindow,
+    before_close: impl Fn(&gtk4::ApplicationWindow) + 'static,
+) {
     let keys = gtk4::EventControllerKey::new();
     keys.connect_key_pressed({
         let window = window.clone();
         move |_, key, _, _| {
             if key == gdk::Key::Escape {
+                before_close(&window);
                 window.close();
                 return glib::Propagation::Stop;
             }
@@ -445,8 +448,7 @@ pub fn show_history(
     application: &gtk4::Application,
     search: impl Fn(&str) -> Result<Vec<Entry>> + 'static,
 ) {
-    static CSS_LOADED: std::sync::Once = std::sync::Once::new();
-    CSS_LOADED.call_once(load_css);
+    ensure_css_loaded();
 
     let window = gtk4::ApplicationWindow::builder()
         .application(application)

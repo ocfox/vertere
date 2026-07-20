@@ -5,7 +5,7 @@
 //! keeps the cache and the database from having to stay in step.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
@@ -21,12 +21,6 @@ pub fn save(dir: &Path, png: &[u8]) -> Result<String> {
     let path = dir.join(&name);
     fs::write(&path, png).with_context(|| format!("cannot write {}", path.display()))?;
     Ok(name)
-}
-
-/// Resolves a stored path, or `None` when the file is gone.
-pub fn find(dir: &Path, name: &str) -> Option<PathBuf> {
-    let path = dir.join(name);
-    path.is_file().then_some(path)
 }
 
 /// Deletes the oldest images until the directory fits within `limit_bytes`.
@@ -68,6 +62,7 @@ pub fn prune(dir: &Path, limit_bytes: u64) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     struct TempDir(PathBuf);
 
@@ -95,19 +90,11 @@ mod tests {
     }
 
     #[test]
-    fn saves_and_finds_an_image() {
+    fn saves_an_image() {
         let dir = TempDir::new("save");
         let name = save(&dir.0, b"fake png").unwrap();
 
-        let path = find(&dir.0, &name).unwrap();
-        assert_eq!(fs::read(path).unwrap(), b"fake png");
-    }
-
-    #[test]
-    fn a_missing_file_is_simply_absent() {
-        let dir = TempDir::new("missing");
-        fs::create_dir_all(&dir.0).unwrap();
-        assert!(find(&dir.0, "nope.png").is_none());
+        assert_eq!(fs::read(dir.0.join(&name)).unwrap(), b"fake png");
     }
 
     #[test]
@@ -122,7 +109,7 @@ mod tests {
         let name = save(&dir.0, &[0u8; 100]).unwrap();
 
         prune(&dir.0, 1024).unwrap();
-        assert!(find(&dir.0, &name).is_some());
+        assert!(dir.0.join(&name).is_file());
     }
 
     #[test]
@@ -134,7 +121,7 @@ mod tests {
 
         prune(&dir.0, 150).unwrap();
 
-        assert!(find(&dir.0, &old).is_none());
-        assert!(find(&dir.0, &new).is_some());
+        assert!(!dir.0.join(&old).is_file());
+        assert!(dir.0.join(&new).is_file());
     }
 }

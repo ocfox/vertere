@@ -82,14 +82,10 @@ fn api_key() -> Result<String> {
     let key = std::env::var(API_KEY_ENV).unwrap_or_default();
     let key = key.trim();
     if key.is_empty() {
-        bail(format!("${API_KEY_ENV} is not set"))
+        anyhow::bail!("${API_KEY_ENV} is not set")
     } else {
         Ok(key.to_owned())
     }
-}
-
-fn bail<T>(message: String) -> Result<T> {
-    Err(anyhow!(message))
 }
 
 /// Becomes the instance that later commands are handed to.

@@ -257,14 +257,7 @@ impl Store {
 
     /// The most recent entries, newest first.
     pub fn recent(&self, limit: usize) -> Result<Vec<Entry>> {
-        let mut stmt = self.db.prepare(
-            "SELECT id, created_at, kind, model, target, source, translated, image_path
-             FROM entry ORDER BY created_at DESC, id DESC LIMIT ?1",
-        )?;
-        let entries = stmt
-            .query_map([limit], read_entry)?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        entries.into_iter().collect()
+        self.query_entries("ORDER BY created_at DESC, id DESC LIMIT ?1", [limit])
     }
 
     /// Substring search over both the source and the translation, newest first.
@@ -278,14 +271,23 @@ impl Store {
         if query.is_empty() {
             return self.recent(limit);
         }
-        let mut stmt = self.db.prepare(
-            "SELECT id, created_at, kind, model, target, source, translated, image_path
-             FROM entry
-             WHERE source LIKE ?1 ESCAPE '\\' OR translated LIKE ?1 ESCAPE '\\'
+        self.query_entries(
+            "WHERE source LIKE ?1 ESCAPE '\\' OR translated LIKE ?1 ESCAPE '\\'
              ORDER BY created_at DESC, id DESC LIMIT ?2",
-        )?;
+            params![like_contains(query), limit],
+        )
+    }
+
+    /// Runs `SELECT <entry columns> FROM entry <clause>` with `params` and
+    /// collects the rows, sharing the column list and row-mapping between
+    /// `recent` and `search`.
+    fn query_entries(&self, clause: &str, params: impl rusqlite::Params) -> Result<Vec<Entry>> {
+        let mut stmt = self.db.prepare(&format!(
+            "SELECT id, created_at, kind, model, target, source, translated, image_path
+             FROM entry {clause}"
+        ))?;
         let entries = stmt
-            .query_map(params![like_contains(query), limit], read_entry)?
+            .query_map(params, read_entry)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         entries.into_iter().collect()
     }

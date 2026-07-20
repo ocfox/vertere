@@ -57,29 +57,34 @@ fn main() -> std::process::ExitCode {
 }
 
 fn dispatch(application: &gtk4::Application, arguments: &[String]) -> Result<()> {
-    match arguments {
-        [command] if command == "daemon" => app::start_daemon(application),
-        [command] if command == "settings" => {
+    match arguments
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
+        ["daemon"] => app::start_daemon(application),
+        ["settings"] => {
             app::settings_window(application);
             Ok(())
         }
-        [command] if command == "history" => {
+        ["history"] => {
             app::history_window(application);
             Ok(())
         }
-        [command] if command == "shot" => {
+        ["shot"] => {
             app::shot(application);
             Ok(())
         }
-        [command] if command == "clip" => {
+        ["clip"] => {
             app::clip(application);
             Ok(())
         }
-        [command] if command == "sel" => {
+        ["sel"] => {
             app::sel(application);
             Ok(())
         }
-        [command] if command == "-h" || command == "--help" => {
+        ["-h"] | ["--help"] => {
             print!("{USAGE}");
             Ok(())
         }
