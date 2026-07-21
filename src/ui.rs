@@ -102,6 +102,7 @@ where
         .label("…")
         .wrap(true)
         .selectable(true)
+        .focusable(false)
         .xalign(0.0)
         .build();
     translation.add_css_class("translation");
@@ -109,6 +110,7 @@ where
     let source = gtk4::Label::builder()
         .wrap(true)
         .selectable(true)
+        .focusable(false)
         .xalign(0.0)
         .build();
     source.add_css_class("source");
@@ -535,6 +537,7 @@ fn history_row(entry: &Entry) -> gtk4::Widget {
         .label(&entry.translated)
         .wrap(true)
         .selectable(true)
+        .focusable(false)
         .xalign(0.0)
         .build();
 
@@ -542,6 +545,7 @@ fn history_row(entry: &Entry) -> gtk4::Widget {
         .label(&entry.source)
         .wrap(true)
         .selectable(true)
+        .focusable(false)
         .xalign(0.0)
         .build();
     source.add_css_class("source");
