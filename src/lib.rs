@@ -12,7 +12,6 @@ pub const LAYER_NAMESPACE: &str = "vertere";
 
 pub mod app;
 pub mod capture;
-pub mod images;
 pub mod provider;
 pub mod store;
 pub mod translate;

@@ -11,7 +11,7 @@ use gtk4::prelude::*;
 use crate::provider::Provider;
 use crate::store::{Kind, Record, Settings, Store};
 use crate::translate::Reply;
-use crate::{capture, images, tray, ui, xdg};
+use crate::{capture, tray, ui, xdg};
 
 /// A provider built for one set of settings, reused until they change.
 struct Session {
@@ -111,7 +111,7 @@ pub fn shot(application: &gtk4::Application) {
     match capture::screenshot() {
         // Cancelling the selection is a decision, not a failure.
         Ok(None) => {}
-        Ok(Some(png)) => run(application, Kind::Shot, Input::Image(Arc::from(png))),
+        Ok(Some(png)) => run(application, Kind::Shot, Input::Image(png)),
         Err(err) => fail(application, err),
     }
 }
@@ -162,7 +162,7 @@ fn text(application: &gtk4::Application, kind: Kind, read: Result<String>, when_
 }
 
 enum Input {
-    Image(Arc<[u8]>),
+    Image(Vec<u8>),
     Text(String),
 }
 
@@ -181,14 +181,10 @@ fn run(application: &gtk4::Application, kind: Kind, input: Input) {
         Err(err) => return fail(application, err),
     };
 
-    let png = match &input {
-        Input::Image(png) => Some(Arc::clone(png)),
-        Input::Text(_) => None,
-    };
     let deltas = translate(Arc::clone(&session), input);
 
     ui::show(application, deltas, move |reply| {
-        report(record(&session, kind, &reply, png.as_deref()));
+        report(record(&session, kind, &reply));
     });
 }
 
@@ -229,20 +225,10 @@ fn translate(session: Arc<Session>, input: Input) -> impl Stream<Item = Result<S
     receiver
 }
 
-fn record(session: &Session, kind: Kind, reply: &Reply, png: Option<&[u8]>) -> Result<()> {
+fn record(session: &Session, kind: Kind, reply: &Reply) -> Result<()> {
     if reply.is_empty() {
         return Ok(());
     }
-
-    let image_path = match png.filter(|_| session.settings.keep_images) {
-        Some(png) => {
-            let dir = xdg::cache_dir()?.join("images");
-            let name = images::save(&dir, png)?;
-            images::prune(&dir, session.settings.image_cache_limit as usize)?;
-            Some(name)
-        }
-        None => None,
-    };
 
     let mut store = open_store()?;
     store.add(&Record {
@@ -251,7 +237,6 @@ fn record(session: &Session, kind: Kind, reply: &Reply, png: Option<&[u8]>) -> R
         target: session.settings.target(),
         source: reply.source(),
         translated: reply.translation(),
-        image_path: image_path.as_deref(),
     })?;
     Ok(())
 }

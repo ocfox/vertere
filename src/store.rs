@@ -8,8 +8,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, OptionalExtension, params};
 
-const DEFAULT_IMAGE_CACHE_LIMIT: u64 = 200;
-
 /// Used when the corresponding field is left empty.
 ///
 /// The settings view shows these as placeholder text, so an empty box and the
@@ -38,9 +36,6 @@ pub struct Settings {
     /// The OpenAI-compatible endpoint to send requests to. Empty for
     /// OpenRouter's own.
     pub base_url: String,
-    pub keep_images: bool,
-    /// How many images to keep in the cache before the oldest are deleted.
-    pub image_cache_limit: u64,
 }
 
 impl Default for Settings {
@@ -50,8 +45,6 @@ impl Default for Settings {
             target_lang: String::new(),
             fallback_lang: String::new(),
             base_url: String::new(),
-            keep_images: false,
-            image_cache_limit: DEFAULT_IMAGE_CACHE_LIMIT,
         }
     }
 }
@@ -124,7 +117,6 @@ pub struct Record<'a> {
     pub target: &'a str,
     pub source: &'a str,
     pub translated: &'a str,
-    pub image_path: Option<&'a str>,
 }
 
 /// A translation read back out.
@@ -138,7 +130,6 @@ pub struct Entry {
     pub target: String,
     pub source: String,
     pub translated: String,
-    pub image_path: Option<String>,
 }
 
 pub struct Store {
@@ -173,31 +164,38 @@ impl Store {
             .db
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .context("cannot read the schema version")?;
-        if version >= 1 {
-            return Ok(());
+        if version < 1 {
+            self.db.execute_batch(
+                "BEGIN;
+                 -- Key-value rather than a column per setting, so adding one later
+                 -- is a write instead of a migration.
+                 CREATE TABLE setting (
+                   key   TEXT PRIMARY KEY,
+                   value TEXT NOT NULL
+                 );
+                 CREATE TABLE entry (
+                   id         INTEGER PRIMARY KEY,
+                   created_at INTEGER NOT NULL,
+                   kind       TEXT NOT NULL,
+                   model      TEXT NOT NULL,
+                   target     TEXT NOT NULL,
+                   source     TEXT NOT NULL,
+                   translated TEXT NOT NULL,
+                   image_path TEXT
+                 );
+                 CREATE INDEX entry_created_at ON entry (created_at DESC);
+                 PRAGMA user_version = 1;
+                 COMMIT;",
+            )?;
         }
-        self.db.execute_batch(
-            "BEGIN;
-             -- Key-value rather than a column per setting, so adding one later
-             -- is a write instead of a migration.
-             CREATE TABLE setting (
-               key   TEXT PRIMARY KEY,
-               value TEXT NOT NULL
-             );
-             CREATE TABLE entry (
-               id         INTEGER PRIMARY KEY,
-               created_at INTEGER NOT NULL,
-               kind       TEXT NOT NULL,
-               model      TEXT NOT NULL,
-               target     TEXT NOT NULL,
-               source     TEXT NOT NULL,
-               translated TEXT NOT NULL,
-               image_path TEXT
-             );
-             CREATE INDEX entry_created_at ON entry (created_at DESC);
-             PRAGMA user_version = 1;
-             COMMIT;",
-        )?;
+        if version < 2 {
+            // The screenshot-caching feature this backed never shipped a way to
+            // turn it on, so there is nothing to migrate the data into.
+            self.db.execute_batch(
+                "ALTER TABLE entry DROP COLUMN image_path;
+                 PRAGMA user_version = 2;",
+            )?;
+        }
         Ok(())
     }
 
@@ -219,10 +217,6 @@ impl Store {
                 "target_lang" => settings.target_lang = value,
                 "fallback_lang" => settings.fallback_lang = value,
                 "base_url" => settings.base_url = value,
-                "keep_images" => settings.keep_images = value == "1",
-                "image_cache_limit" => {
-                    settings.image_cache_limit = value.parse().unwrap_or(DEFAULT_IMAGE_CACHE_LIMIT);
-                }
                 _ => {}
             }
         }
@@ -236,8 +230,6 @@ impl Store {
             ("target_lang", settings.target_lang.clone()),
             ("fallback_lang", settings.fallback_lang.clone()),
             ("base_url", settings.base_url.clone()),
-            ("keep_images", u8::from(settings.keep_images).to_string()),
-            ("image_cache_limit", settings.image_cache_limit.to_string()),
         ] {
             tx.execute(
                 "INSERT INTO setting (key, value) VALUES (?1, ?2)
@@ -257,8 +249,8 @@ impl Store {
             .as_secs() as i64;
 
         self.db.execute(
-            "INSERT INTO entry (created_at, kind, model, target, source, translated, image_path)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO entry (created_at, kind, model, target, source, translated)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 now,
                 record.kind.to_string(),
@@ -266,7 +258,6 @@ impl Store {
                 record.target,
                 record.source,
                 record.translated,
-                record.image_path,
             ],
         )?;
         Ok(self.db.last_insert_rowid())
@@ -300,7 +291,7 @@ impl Store {
     /// `recent` and `search`.
     fn query_entries(&self, clause: &str, params: impl rusqlite::Params) -> Result<Vec<Entry>> {
         let mut stmt = self.db.prepare(&format!(
-            "SELECT id, created_at, kind, model, target, source, translated, image_path
+            "SELECT id, created_at, kind, model, target, source, translated
              FROM entry {clause}"
         ))?;
         let entries = stmt
@@ -313,7 +304,7 @@ impl Store {
         let entry = self
             .db
             .query_row(
-                "SELECT id, created_at, kind, model, target, source, translated, image_path
+                "SELECT id, created_at, kind, model, target, source, translated
                  FROM entry WHERE id = ?1",
                 [id],
                 read_entry,
@@ -343,7 +334,6 @@ fn read_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<Row> {
         target: row.get(4)?,
         source: row.get(5)?,
         translated: row.get(6)?,
-        image_path: row.get(7)?,
     }))
 }
 
@@ -375,7 +365,6 @@ mod tests {
             target: "zh-Hans",
             source,
             translated,
-            image_path: None,
         }
     }
 
@@ -389,21 +378,7 @@ mod tests {
         assert_eq!(entry.kind, Kind::Clip);
         assert_eq!(entry.source, "Hello");
         assert_eq!(entry.translated, "你好");
-        assert_eq!(entry.image_path, None);
         assert!(entry.created_at > 0);
-    }
-
-    #[test]
-    fn keeps_the_image_path_when_given() {
-        let mut history = Store::open_in_memory().unwrap();
-        let mut record = record("Hello", "你好");
-        record.kind = Kind::Shot;
-        record.image_path = Some("images/abc.png");
-        let id = history.add(&record).unwrap();
-
-        let entry = history.get(id).unwrap().unwrap();
-        assert_eq!(entry.kind, Kind::Shot);
-        assert_eq!(entry.image_path.as_deref(), Some("images/abc.png"));
     }
 
     #[test]
@@ -535,8 +510,6 @@ mod setting_tests {
             target_lang: "Simplified Chinese".into(),
             fallback_lang: "English".into(),
             base_url: "https://example.com/v1".into(),
-            keep_images: true,
-            image_cache_limit: 50,
         };
         store.save_settings(&settings).unwrap();
         assert_eq!(store.settings().unwrap(), settings);
@@ -611,21 +584,5 @@ mod setting_tests {
         };
         assert_eq!(settings.target(), "Japanese");
         assert_eq!(settings.fallback(), "German");
-    }
-
-    #[test]
-    fn a_malformed_cache_limit_falls_back_to_the_default() {
-        let store = Store::open_in_memory().unwrap();
-        store
-            .db
-            .execute(
-                "INSERT INTO setting (key, value) VALUES ('image_cache_limit', 'lots')",
-                [],
-            )
-            .unwrap();
-        assert_eq!(
-            store.settings().unwrap().image_cache_limit,
-            DEFAULT_IMAGE_CACHE_LIMIT
-        );
     }
 }

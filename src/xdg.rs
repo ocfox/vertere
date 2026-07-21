@@ -32,11 +32,6 @@ pub fn state_dir() -> Result<PathBuf> {
     Ok(base("XDG_STATE_HOME", ".local/state")?.join("vertere"))
 }
 
-/// `$XDG_CACHE_HOME/vertere`, default `~/.cache/vertere`.
-pub fn cache_dir() -> Result<PathBuf> {
-    Ok(base("XDG_CACHE_HOME", ".cache")?.join("vertere"))
-}
-
 /// `$XDG_RUNTIME_DIR/vertere.sock`. Falls back to `/tmp` when the compositor
 /// did not provide a runtime dir.
 pub fn socket_path() -> PathBuf {
