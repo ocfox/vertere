@@ -112,9 +112,19 @@ where
         .wrap(true)
         .selectable(true)
         .focusable(false)
+        .hexpand(true)
         .xalign(0.0)
         .build();
     translation.add_css_class("translation");
+
+    let copy = gtk4::Button::from_icon_name("edit-copy-symbolic");
+    copy.add_css_class("flat");
+    copy.set_valign(gtk4::Align::Start);
+    copy.set_tooltip_text(Some("Copy the translation"));
+
+    let translation_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    translation_row.append(&translation);
+    translation_row.append(&copy);
 
     let source = gtk4::Label::builder()
         .wrap(true)
@@ -133,9 +143,20 @@ where
     let status = gtk4::Label::builder().xalign(0.0).visible(false).build();
     status.add_css_class("status");
 
+    copy.connect_clicked({
+        let translation = translation.clone();
+        let status = status.clone();
+        move |_| {
+            if let Some(display) = gdk::Display::default() {
+                display.clipboard().set_text(&translation.label());
+            }
+            show_status(&status, "Copied");
+        }
+    });
+
     let bubble = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
     bubble.add_css_class("bubble");
-    bubble.append(&translation);
+    bubble.append(&translation_row);
     bubble.append(&source_row);
     bubble.append(&status);
     window.set_child(Some(&bubble));
@@ -410,8 +431,38 @@ pub fn show_settings(application: &gtk4::Application, settings: Settings) {
         }
     });
 
+    let test = gtk4::Button::with_label("Test");
+    test.connect_clicked({
+        let (model, base_url) = (model.clone(), base_url.clone());
+        let status = status.clone();
+        let test = test.clone();
+        move |_| {
+            let model = model.text().trim().to_owned();
+            if model.is_empty() {
+                show_status(&status, "A model is required");
+                return;
+            }
+            let base_url = base_url.text().trim().to_owned();
+
+            show_status(&status, "Testing…");
+            test.set_sensitive(false);
+            crate::app::test_connection(model, base_url, {
+                let status = status.clone();
+                let test = test.clone();
+                move |result| {
+                    test.set_sensitive(true);
+                    match result {
+                        Ok(()) => show_status(&status, "Looks good."),
+                        Err(err) => show_status(&status, &format!("Test failed: {err:#}")),
+                    }
+                }
+            });
+        }
+    });
+
     let actions = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     actions.set_halign(gtk4::Align::End);
+    actions.append(&test);
     actions.append(&save);
 
     let body = gtk4::Box::new(gtk4::Orientation::Vertical, 8);

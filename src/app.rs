@@ -139,6 +139,39 @@ pub fn settings_window(application: &gtk4::Application) {
     ui::show_settings(application, settings().unwrap_or_default());
 }
 
+/// Checks that `model` exists at `base_url` and accepts images, without
+/// touching the saved settings or the cached [`Session`].
+///
+/// Runs on the tokio runtime like a translation does, so the settings window
+/// stays responsive while the request is in flight.
+pub fn test_connection(
+    model: String,
+    base_url: String,
+    on_done: impl FnOnce(Result<()>) + 'static,
+) {
+    let (sender, receiver) = async_channel::bounded(1);
+
+    runtime().spawn(async move {
+        let result = async {
+            let settings = Settings {
+                model,
+                base_url,
+                ..Settings::default()
+            };
+            let provider = Provider::new(&settings, &api_key()?)?;
+            provider.check_model().await
+        }
+        .await;
+        let _ = sender.send(result).await;
+    });
+
+    gtk4::glib::spawn_future_local(async move {
+        if let Ok(result) = receiver.recv().await {
+            on_done(result);
+        }
+    });
+}
+
 pub fn history_window(application: &gtk4::Application) {
     // Opened once and reused for every search and delete, rather than per
     // action: the search box re-queries on each change, and a fresh
