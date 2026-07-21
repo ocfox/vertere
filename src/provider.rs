@@ -4,14 +4,17 @@
 //! ships often, and a leak would spread every future breaking change across the
 //! whole program.
 
-use anyhow::{Context, Result, bail};
+use std::time::Duration;
+
+use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use futures_util::StreamExt;
-use futures_util::stream::BoxStream;
+use futures_util::stream::{self, BoxStream};
+use futures_util::{Stream, StreamExt};
 use openrouter_rs::OpenRouterClient;
 use openrouter_rs::api::chat::{ChatCompletionRequest, ContentPart, Message};
 use openrouter_rs::types::Role;
+use tokio::time::timeout;
 
 use crate::store::Settings;
 use crate::translate;
@@ -20,6 +23,11 @@ use crate::translate;
 ///
 /// Boxed so that the image and text paths have one type between them.
 pub type Deltas = BoxStream<'static, Result<String>>;
+
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Resets on every chunk, so a slow-but-still-streaming translation is not cut
+/// short — only a connection that has gone completely silent trips it.
+const READ_TIMEOUT: Duration = Duration::from_secs(20);
 
 pub struct Provider {
     client: OpenRouterClient,
@@ -46,11 +54,9 @@ impl Provider {
     /// Run at startup: a model that cannot see is otherwise only discovered on
     /// the first screenshot, long after the mistake was made.
     pub async fn check_model(&self) -> Result<()> {
-        let models = self
-            .client
-            .models()
-            .list()
+        let models = timeout(CONNECT_TIMEOUT, self.client.models().list())
             .await
+            .map_err(|_| anyhow!("listing models timed out"))?
             .context("cannot list models")?;
 
         let Some(model) = models.iter().find(|m| m.id == self.model) else {
@@ -90,27 +96,40 @@ impl Provider {
             .build()
             .context("cannot build the translation request")?;
 
-        let stream = self
-            .client
-            .chat()
-            .stream(&request)
+        let stream = timeout(CONNECT_TIMEOUT, self.client.chat().stream(&request))
             .await
+            .map_err(|_| anyhow!("connecting to the endpoint timed out"))?
             .context("cannot reach the endpoint")?;
 
-        Ok(stream
-            .filter_map(|chunk| async move {
-                match chunk {
-                    Ok(chunk) => {
-                        let text = chunk.choices.first().and_then(|c| c.content())?;
-                        (!text.is_empty()).then(|| Ok(text.to_owned()))
-                    }
-                    Err(err) => Some(Err(
-                        anyhow::Error::new(err).context("translation stream failed")
-                    )),
+        let deltas = stream.filter_map(|chunk| async move {
+            match chunk {
+                Ok(chunk) => {
+                    let text = chunk.choices.first().and_then(|c| c.content())?;
+                    (!text.is_empty()).then(|| Ok(text.to_owned()))
                 }
-            })
-            .boxed())
+                Err(err) => Some(Err(
+                    anyhow::Error::new(err).context("translation stream failed")
+                )),
+            }
+        });
+
+        Ok(with_read_timeout(deltas).boxed())
     }
+}
+
+/// Fails the stream once `READ_TIMEOUT` passes with no new chunk, rather than
+/// leaving the caller waiting on a connection that has gone silent.
+fn with_read_timeout(
+    deltas: impl Stream<Item = Result<String>> + Send + 'static,
+) -> impl Stream<Item = Result<String>> + Send + 'static {
+    stream::unfold(Some(Box::pin(deltas)), |state| async move {
+        let mut deltas = state?;
+        match timeout(READ_TIMEOUT, deltas.next()).await {
+            Ok(Some(item)) => Some((item, Some(deltas))),
+            Ok(None) => None,
+            Err(_) => Some((Err(anyhow!("the connection went silent")), None)),
+        }
+    })
 }
 
 fn accepts_images(model: &openrouter_rs::api::models::Model) -> bool {
