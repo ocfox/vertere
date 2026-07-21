@@ -36,12 +36,21 @@ window.vertere {
   font-size: 1.1em;
 }
 .source {
-  opacity: 0.7;
+  color: alpha(@theme_fg_color, 0.7);
   font-size: 0.9em;
 }
 .status {
-  opacity: 0.55;
+  color: alpha(@theme_fg_color, 0.55);
   font-style: italic;
+}
+/* GTK's own rule leaves selected text `color: transparent` so the dimmed
+   label color shows through, and only turns the highlight from grey to blue
+   when the window has focus — which a `focusable(false)` label never gets.
+   Pin both to the theme's selection colors so selected text stays readable
+   regardless of dimming or focus. */
+label > selection {
+  background-color: @theme_selected_bg_color;
+  color: @theme_selected_fg_color;
 }
 ";
 
