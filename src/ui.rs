@@ -151,6 +151,17 @@ where
                 display.clipboard().set_text(&translation.label());
             }
             show_status(&status, "Copied");
+            glib::timeout_add_local_once(Duration::from_secs(1), {
+                let status = status.clone();
+                // Guarded rather than unconditional: a later status (e.g. a
+                // stream error, though unlikely by the time copy is clickable)
+                // must not be hidden by a timer meant for this one.
+                move || {
+                    if status.label() == "Copied" {
+                        status.set_visible(false);
+                    }
+                }
+            });
         }
     });
 
