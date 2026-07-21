@@ -12,6 +12,57 @@
 
   outputs =
     inputs@{ flake-parts, ... }:
+    let
+      mkVertere =
+        pkgs:
+        pkgs.rustPlatform.buildRustPackage {
+          pname = "vertere";
+          version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
+          src = pkgs.lib.cleanSource ./.;
+          cargoLock.lockFile = ./Cargo.lock;
+
+          nativeBuildInputs = [
+            pkgs.pkg-config
+            pkgs.wrapGAppsHook4
+          ];
+
+          buildInputs = [
+            pkgs.gtk4
+            pkgs.gtk4-layer-shell
+            pkgs.glib
+            pkgs.cairo
+            pkgs.pango
+            pkgs.gdk-pixbuf
+            pkgs.graphene
+            pkgs.wayland
+          ];
+
+          postInstall = ''
+            mkdir -p $out/share
+            cp -r data/applications data/icons -t $out/share/
+          '';
+
+          preFixup = ''
+            gappsWrapperArgs+=(
+              --prefix PATH : ${
+                pkgs.lib.makeBinPath [
+                  pkgs.grim
+                  pkgs.slurp
+                  pkgs.wl-clipboard
+                ]
+              }
+            )
+          '';
+
+          meta = {
+            description = "Wayland translator";
+            homepage = "https://github.com/ocfox/vertere";
+            license = pkgs.lib.licenses.mit;
+            mainProgram = "vertere";
+            platforms = pkgs.lib.platforms.linux;
+          };
+        };
+    in
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = [
         "x86_64-linux"
@@ -34,35 +85,17 @@
               "rustfmt"
             ];
           };
+
+          vertere = mkVertere pkgs;
         in
         {
-          packages.default = pkgs.callPackage ./nix/package.nix { };
+          packages.default = vertere;
 
           devShells.default = pkgs.mkShell {
-            # Tools that run on the build machine.
-            nativeBuildInputs = [
-              rustToolchain
-              pkgs.pkg-config
-              pkgs.wrapGAppsHook4
-            ];
+            inputsFrom = [ vertere ];
 
-            # Libraries linked against. gtk4-layer-shell pulls the layer-shell
-            # protocol bindings; the rest are gtk4's own pkg-config deps, which
-            # the gtk4-rs build script resolves individually.
-            buildInputs = [
-              pkgs.gtk4
-              pkgs.gtk4-layer-shell
-              pkgs.glib
-              pkgs.cairo
-              pkgs.pango
-              pkgs.gdk-pixbuf
-              pkgs.graphene
-              pkgs.wayland
-            ];
-
-            # Invoked as subprocesses by src/capture.rs, so they are needed to run, not
-            # to link.
             packages = [
+              rustToolchain
               pkgs.grim
               pkgs.slurp
               pkgs.wl-clipboard
@@ -78,7 +111,7 @@
         };
 
       flake.overlays.default = final: prev: {
-        vertere = final.callPackage ./nix/package.nix { };
+        vertere = mkVertere final;
       };
 
       flake.nixosModules.default =
@@ -102,11 +135,6 @@
               description = "The vertere package to use.";
             };
 
-            # No option for the model or the languages: those are edited in the
-            # settings window and kept in the database. Generating them here
-            # would put the declarative copy in the read-only Nix store, where
-            # the window could not write, leaving two sources of truth.
-
             environmentFile = lib.mkOption {
               type = lib.types.nullOr lib.types.path;
               default = null;
@@ -126,14 +154,9 @@
               description = "Vertere translation daemon";
               partOf = [ "graphical-session.target" ];
               after = [ "graphical-session.target" ];
-              # Unconditional: a resident daemon is the whole point of having one,
-              # since the commands are bound to keys and the bubble should appear
-              # at once rather than after a cold start.
               wantedBy = [ "graphical-session.target" ];
 
               serviceConfig = {
-                # Type=dbus makes systemd wait for the name to appear on the bus,
-                # so a command fired right after start cannot race registration.
                 Type = "dbus";
                 BusName = "me.ocfox.Vertere";
                 ExecStart = "${lib.getExe cfg.package} daemon";
