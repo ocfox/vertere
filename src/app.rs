@@ -2,6 +2,7 @@
 
 use std::cell::RefCell;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::{Context, Result, anyhow};
@@ -139,18 +140,32 @@ pub fn settings_window(application: &gtk4::Application) {
 }
 
 pub fn history_window(application: &gtk4::Application) {
-    // Opened once and reused for every search, rather than per keystroke: the
-    // search box re-queries on each change, and a fresh connection per
-    // keystroke buys nothing but repeated migration checks.
-    let store = open_store().map_err(|err| format!("{err:#}"));
-    // 200 rows is more than anyone scrolls; the search box is the way to reach
-    // anything older.
-    ui::show_history(application, move |query| {
+    // Opened once and reused for every search and delete, rather than per
+    // action: the search box re-queries on each change, and a fresh
+    // connection per keystroke buys nothing but repeated migration checks.
+    let store = Rc::new(RefCell::new(open_store().map_err(|err| format!("{err:#}"))));
+
+    let search = {
+        let store = Rc::clone(&store);
+        // 200 rows is more than anyone scrolls; the search box is the way to
+        // reach anything older.
+        move |query: &str| {
+            store
+                .borrow()
+                .as_ref()
+                .map_err(|err| anyhow!("{err}"))?
+                .search(query, 200)
+        }
+    };
+    let delete = move |id: i64| {
         store
-            .as_ref()
+            .borrow_mut()
+            .as_mut()
             .map_err(|err| anyhow!("{err}"))?
-            .search(query, 200)
-    });
+            .delete(id)
+    };
+
+    ui::show_history(application, search, delete);
 }
 
 fn text(application: &gtk4::Application, kind: Kind, read: Result<String>, when_empty: &str) {

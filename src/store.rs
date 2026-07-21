@@ -21,7 +21,7 @@ pub const DEFAULT_BASE_URL: &str = "https://openrouter.ai/api/v1";
 ///
 /// The API key is deliberately absent: it stays in `API_KEY`, since a secret
 /// does not belong in a database that also holds translated text.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Settings {
     /// Model slug, in the vendor's own naming. Must accept image input.
     pub model: String,
@@ -36,17 +36,6 @@ pub struct Settings {
     /// The OpenAI-compatible endpoint to send requests to. Empty for
     /// OpenRouter's own.
     pub base_url: String,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            model: String::new(),
-            target_lang: String::new(),
-            fallback_lang: String::new(),
-            base_url: String::new(),
-        }
-    }
 }
 
 impl Settings {

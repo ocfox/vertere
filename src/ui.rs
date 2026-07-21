@@ -391,16 +391,12 @@ pub fn show_settings(application: &gtk4::Application, settings: Settings) {
             base_url.clone(),
         );
         let status = status.clone();
-        // Rebuilt per click rather than mutated in place: the button hands out
-        // an `Fn`, and the fields the view does not show must survive untouched.
-        let base = settings.clone();
         move |_| {
             let settings = Settings {
                 model: model.text().trim().to_owned(),
                 target_lang: target.text().trim().to_owned(),
                 fallback_lang: fallback.text().trim().to_owned(),
                 base_url: base_url.text().trim().to_owned(),
-                ..base.clone()
             };
 
             if !settings.is_usable() {
@@ -470,6 +466,7 @@ fn close_on_escape_with(
 pub fn show_history(
     application: &gtk4::Application,
     search: impl Fn(&str) -> Result<Vec<Entry>> + 'static,
+    delete: impl Fn(i64) -> Result<()> + 'static,
 ) {
     ensure_css_loaded();
 
@@ -492,11 +489,20 @@ pub fn show_history(
     let status = gtk4::Label::builder().xalign(0.0).visible(false).build();
     status.add_css_class("status");
 
+    let scroller = gtk4::ScrolledWindow::builder()
+        .child(&list)
+        .vexpand(true)
+        .build();
+
+    // Type-erased so `history_row` doesn't need to be generic over it.
+    let delete: Rc<dyn Fn(i64) -> Result<()>> = Rc::new(delete);
+
     // Shared rather than cloned: the closure owns `search`, which is only
     // required to be callable, not duplicable.
     let refresh = Rc::new({
         let list = list.clone();
         let status = status.clone();
+        let query = query.clone();
         move |text: &str| {
             while let Some(child) = list.first_child() {
                 list.remove(&child);
@@ -508,7 +514,7 @@ pub fn show_history(
                 Ok(entries) => {
                     status.set_visible(false);
                     for entry in entries {
-                        list.append(&history_row(&entry));
+                        list.append(&history_row(&entry, &list, &delete, &status, &query));
                     }
                 }
                 Err(err) => show_status(&status, &format!("Could not read: {err:#}")),
@@ -521,11 +527,6 @@ pub fn show_history(
         let refresh = Rc::clone(&refresh);
         move |query| refresh(query.text().as_str())
     });
-
-    let scroller = gtk4::ScrolledWindow::builder()
-        .child(&list)
-        .vexpand(true)
-        .build();
 
     let body = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
     body.set_margin_top(12);
@@ -541,7 +542,13 @@ pub fn show_history(
     window.present();
 }
 
-fn history_row(entry: &Entry) -> gtk4::Widget {
+fn history_row(
+    entry: &Entry,
+    list: &gtk4::ListBox,
+    delete: &Rc<dyn Fn(i64) -> Result<()>>,
+    status: &gtk4::Label,
+    query: &gtk4::SearchEntry,
+) -> gtk4::Widget {
     let translated = gtk4::Label::builder()
         .label(&entry.translated)
         .wrap(true)
@@ -561,9 +568,41 @@ fn history_row(entry: &Entry) -> gtk4::Widget {
 
     let meta = gtk4::Label::builder()
         .label(format!("{} · {}", entry.kind, entry.model))
+        .hexpand(true)
         .xalign(0.0)
         .build();
     meta.add_css_class("status");
+
+    let remove = gtk4::Button::from_icon_name("user-trash-symbolic");
+    remove.add_css_class("flat");
+    remove.set_tooltip_text(Some("Delete"));
+    remove.connect_clicked({
+        let list = list.clone();
+        let delete = Rc::clone(delete);
+        let status = status.clone();
+        let query = query.clone();
+        let id = entry.id;
+        move |button| {
+            if let Err(err) = delete(id) {
+                show_status(&status, &format!("Could not delete: {err:#}"));
+                return;
+            }
+            // Moved off the row before it's removed, rather than restoring the
+            // scroll position after: removing the focused button would leave
+            // GTK to pick a new focus widget itself, which is what scrolls the
+            // list back to the top.
+            query.grab_focus();
+            // The list wraps every appended child in its own row; that
+            // wrapper, not the box built here, is what needs removing.
+            if let Some(row) = button.ancestor(gtk4::ListBoxRow::static_type()) {
+                list.remove(&row);
+            }
+        }
+    });
+
+    let meta_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    meta_row.append(&meta);
+    meta_row.append(&remove);
 
     let row = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
     row.set_margin_top(10);
@@ -574,6 +613,6 @@ fn history_row(entry: &Entry) -> gtk4::Widget {
     if !entry.source.is_empty() {
         row.append(&source);
     }
-    row.append(&meta);
+    row.append(&meta_row);
     row.upcast()
 }
