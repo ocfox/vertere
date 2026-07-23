@@ -6,16 +6,13 @@ description = "Wayland translator"
 repository = "https://github.com/ocfox/vertere"
 license = "MIT"
 keywords = ["translation", "wayland", "layer-shell", "sway", "ocr"]
-categories = ["command-line-utilities"]
+categories = ["gui", "accessibility"]
 
 [dependencies]
 anyhow = "1"
 async-channel = "2"
 base64 = "0.22"
 futures-util = "0.3"
-# Version features are cumulative and gate which APIs exist, so these track what
-# the flake pins: GTK 4.22.4, glib 2.88.1, gtk4-layer-shell 1.3. Raise them
-# alongside the flake rather than per API.
 gio = { version = "0.22", features = ["v2_88"] }
 gtk4 = { version = "0.11", features = ["v4_22"] }
 gtk4-layer-shell = { version = "0.8", features = ["v1_3"] }
