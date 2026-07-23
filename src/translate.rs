@@ -7,15 +7,15 @@
 /// also means it can never straddle two streamed deltas.
 pub const SEPARATOR: char = '⁂';
 
-/// Builds the system prompt for translating into `target_lang`.
+/// The direction-choosing directive shared by both prompts.
 ///
 /// `fallback_lang`, when set, is what to use if the source is already in
 /// `target_lang`. One native language and one working language covers most of
 /// what a person reads, and letting the model pick the direction beats making
 /// the user pick it on every keystroke.
-pub fn system_prompt(target_lang: &str, fallback_lang: &str) -> String {
+fn directive(target_lang: &str, fallback_lang: &str) -> String {
     let fallback = fallback_lang.trim();
-    // Part of the opening directive rather than a rule buried in the list
+    // Part of the opening directive rather than a rule buried in a list
     // further down: the exception competes with "translate into {target_lang}"
     // for the model's attention, and loses when it is not stated in the same
     // breath as the rule it is an exception to.
@@ -24,19 +24,23 @@ pub fn system_prompt(target_lang: &str, fallback_lang: &str) -> String {
     } else {
         format!("translate it into {fallback} instead")
     };
-    let directive = format!(
+    format!(
         "You translate text into {target_lang}, unless the source is already \
 written in {target_lang} — judged by its grammar, not merely by sharing \
 characters with it — in which case you {exception}."
-    );
+    )
+}
 
-    // The translation comes first so the user sees it while the transcription is
-    // still arriving; the transcription earns its keep by making history
-    // searchable and re-translatable without a separate OCR pass.
+/// Builds the system prompt for translating a screenshot.
+///
+/// The source has to be transcribed here because an image is the only copy of
+/// it the program has; the transcription earns its keep by making history
+/// searchable and re-translatable without a separate OCR pass.
+pub fn image_system_prompt(target_lang: &str, fallback_lang: &str) -> String {
+    let directive = directive(target_lang, fallback_lang);
     format!(
         "\
-{directive} The text reaches you either as an image of a screen region or as \
-plain text.
+{directive} The text reaches you as an image of a screen region.
 
 Reply with exactly two sections, separated by a line containing only {SEPARATOR}:
 
@@ -55,24 +59,63 @@ and leave the source section empty."
     )
 }
 
+/// Builds the system prompt for translating plain text.
+///
+/// The caller already has the exact source — it came straight from the
+/// clipboard or a selection — so there is nothing to transcribe and asking
+/// for it back would only add latency and a chance of drift from the original.
+pub fn text_system_prompt(target_lang: &str, fallback_lang: &str) -> String {
+    let directive = directive(target_lang, fallback_lang);
+    format!(
+        "\
+{directive}
+
+Rules:
+- Output nothing else. No preamble, no commentary, no markdown code fences.
+- Preserve line breaks and paragraph structure.
+- Give only the translation; do not mention which language it ended up in or why.
+- If there is no translatable text at all, reply with a single hyphen."
+    )
+}
+
 /// A reply being streamed in.
 ///
-/// The model answers with the translation first and the transcribed source
-/// after the separator, so that the part the user is waiting for arrives first.
+/// For an image, the model answers with the translation first and the
+/// transcribed source after the separator, so that the part the user is
+/// waiting for arrives first. For plain text the source is already known, so
+/// every delta is translation and there is no separator to wait for.
 #[derive(Debug, Default)]
 pub struct Reply {
     translation: String,
     source: String,
     past_separator: bool,
+    expects_source: bool,
 }
 
 impl Reply {
+    /// For an image reply, whose source arrives from the model after `{SEPARATOR}`.
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            expects_source: true,
+            ..Self::default()
+        }
+    }
+
+    /// For a text reply, whose source is `source` — already in hand, so the
+    /// model is not asked to repeat it back.
+    pub fn with_source(source: impl Into<String>) -> Self {
+        Self {
+            source: source.into(),
+            ..Self::default()
+        }
     }
 
     /// Appends one streamed delta.
     pub fn push(&mut self, delta: &str) {
+        if !self.expects_source {
+            self.translation.push_str(delta);
+            return;
+        }
         let mut rest = delta;
         if !self.past_separator {
             let Some((before, after)) = rest.split_once(SEPARATOR) else {
@@ -91,14 +134,15 @@ impl Reply {
         self.translation.trim()
     }
 
-    /// The transcribed source text, empty until the separator arrives.
+    /// The source text: known upfront for text input, transcribed by the
+    /// model after the separator for an image.
     pub fn source(&self) -> &str {
         self.source.trim()
     }
 
-    /// Whether the separator has been seen.
+    /// Whether `source()` is ready to show.
     pub fn has_source(&self) -> bool {
-        self.past_separator
+        !self.expects_source || self.past_separator
     }
 
     /// Whether anything usable arrived at all.
@@ -198,34 +242,53 @@ mod prompt_tests {
     use super::*;
 
     #[test]
-    fn names_the_target_language_and_the_separator() {
-        let prompt = system_prompt("Simplified Chinese", "");
+    fn the_image_prompt_names_the_target_language_and_the_separator() {
+        let prompt = image_system_prompt("Simplified Chinese", "");
         assert!(prompt.contains("Simplified Chinese"));
         assert!(prompt.contains(SEPARATOR));
     }
 
     #[test]
+    fn the_text_prompt_names_the_target_language_but_has_no_separator() {
+        let prompt = text_system_prompt("Simplified Chinese", "");
+        assert!(prompt.contains("Simplified Chinese"));
+        assert!(!prompt.contains(SEPARATOR));
+    }
+
+    #[test]
     fn without_a_fallback_the_source_is_repeated_unchanged() {
-        let prompt = system_prompt("English", "");
-        assert!(prompt.contains("repeat it unchanged"));
-        assert!(!prompt.contains("instead"));
+        for prompt in [
+            image_system_prompt("English", ""),
+            text_system_prompt("English", ""),
+        ] {
+            assert!(prompt.contains("repeat it unchanged"));
+            assert!(!prompt.contains("instead"));
+        }
     }
 
     #[test]
     fn a_fallback_replaces_the_repeat_rule_rather_than_adding_to_it() {
-        let prompt = system_prompt("Simplified Chinese", "English");
-        assert!(prompt.contains("translate it into English instead"));
-        assert!(
-            !prompt.contains("repeat it unchanged"),
-            "the two rules would contradict each other"
-        );
+        for prompt in [
+            image_system_prompt("Simplified Chinese", "English"),
+            text_system_prompt("Simplified Chinese", "English"),
+        ] {
+            assert!(prompt.contains("translate it into English instead"));
+            assert!(
+                !prompt.contains("repeat it unchanged"),
+                "the two rules would contradict each other"
+            );
+        }
     }
 
     #[test]
     fn a_blank_fallback_counts_as_none() {
         assert_eq!(
-            system_prompt("English", "   "),
-            system_prompt("English", "")
+            image_system_prompt("English", "   "),
+            image_system_prompt("English", "")
+        );
+        assert_eq!(
+            text_system_prompt("English", "   "),
+            text_system_prompt("English", "")
         );
     }
 }

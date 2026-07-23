@@ -32,7 +32,8 @@ const READ_TIMEOUT: Duration = Duration::from_secs(20);
 pub struct Provider {
     client: OpenRouterClient,
     model: String,
-    system_prompt: String,
+    image_system_prompt: String,
+    text_system_prompt: String,
 }
 
 impl Provider {
@@ -45,7 +46,14 @@ impl Provider {
         Ok(Self {
             client,
             model: settings.model.clone(),
-            system_prompt: translate::system_prompt(settings.target(), settings.fallback()),
+            image_system_prompt: translate::image_system_prompt(
+                settings.target(),
+                settings.fallback(),
+            ),
+            text_system_prompt: translate::text_system_prompt(
+                settings.target(),
+                settings.fallback(),
+            ),
         })
     }
 
@@ -69,28 +77,40 @@ impl Provider {
     }
 
     /// Streams the translation of a PNG screenshot.
+    ///
+    /// The reply also carries a transcription of the source, since the image
+    /// is the only copy of it the program has.
     pub async fn translate_image(&self, png: &[u8]) -> Result<Deltas> {
         let data_url = format!("data:image/png;base64,{}", BASE64.encode(png));
-        self.stream(vec![
-            ContentPart::image_url(data_url),
-            ContentPart::text("Translate the text in this image."),
-        ])
+        self.stream(
+            &self.image_system_prompt,
+            vec![
+                ContentPart::image_url(data_url),
+                ContentPart::text("Translate the text in this image."),
+            ],
+        )
         .await
     }
 
     /// Streams the translation of plain text.
+    ///
+    /// The caller already has the exact source, so the reply is translation
+    /// only — nothing to transcribe back.
     pub async fn translate_text(&self, text: &str) -> Result<Deltas> {
-        self.stream(vec![ContentPart::text(format!(
-            "Translate the following text.\n\n{text}"
-        ))])
+        self.stream(
+            &self.text_system_prompt,
+            vec![ContentPart::text(format!(
+                "Translate the following text.\n\n{text}"
+            ))],
+        )
         .await
     }
 
-    async fn stream(&self, parts: Vec<ContentPart>) -> Result<Deltas> {
+    async fn stream(&self, system_prompt: &str, parts: Vec<ContentPart>) -> Result<Deltas> {
         let request = ChatCompletionRequest::builder()
             .model(&self.model)
             .messages(vec![
-                Message::new(Role::System, self.system_prompt.clone()),
+                Message::new(Role::System, system_prompt.to_owned()),
                 Message::with_parts(Role::User, parts),
             ])
             .build()

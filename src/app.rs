@@ -229,9 +229,15 @@ fn run(application: &gtk4::Application, kind: Kind, input: Input) {
         Err(err) => return fail(application, err),
     };
 
+    // Text input already is the source, so the model is only asked to
+    // translate it, not repeat it back — see `translate`.
+    let known_source = match &input {
+        Input::Text(text) => Some(text.clone()),
+        Input::Image(_) => None,
+    };
     let deltas = translate(Arc::clone(&session), input);
 
-    ui::show(application, deltas, move |reply| {
+    ui::show(application, known_source, deltas, move |reply| {
         report(record(&session, kind, &reply));
     });
 }
@@ -242,7 +248,7 @@ fn run(application: &gtk4::Application, kind: Kind, input: Input) {
 /// an error nobody sees is the same as no error at all.
 fn fail(application: &gtk4::Application, err: anyhow::Error) {
     let deltas = futures_util::stream::once(async move { Err(err) }).boxed();
-    ui::show(application, deltas, |_| {});
+    ui::show(application, None, deltas, |_| {});
 }
 
 fn translate(session: Arc<Session>, input: Input) -> impl Stream<Item = Result<String>> {

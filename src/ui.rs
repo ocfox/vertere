@@ -56,15 +56,23 @@ label > selection {
 
 /// Opens a bubble and streams `deltas` into it.
 ///
+/// `known_source` is `Some` when the source text is already in hand (text
+/// input), so the bubble shows it right away instead of waiting on the model
+/// to repeat it back.
+///
 /// Returns immediately; `on_done` runs once the reply is complete.
-pub fn show<S, F>(application: &gtk4::Application, deltas: S, on_done: F)
-where
+pub fn show<S, F>(
+    application: &gtk4::Application,
+    known_source: Option<String>,
+    deltas: S,
+    on_done: F,
+) where
     S: Stream<Item = Result<String>> + 'static,
     F: FnOnce(Reply) + 'static,
 {
     ensure_css_loaded();
 
-    build(application, deltas, on_done);
+    build(application, known_source, deltas, on_done);
 }
 
 /// Loads the CSS once per process; repeated calls would stack duplicate
@@ -86,8 +94,12 @@ fn load_css() {
     }
 }
 
-fn build<S, F>(application: &gtk4::Application, deltas: S, on_done: F)
-where
+fn build<S, F>(
+    application: &gtk4::Application,
+    known_source: Option<String>,
+    deltas: S,
+    on_done: F,
+) where
     S: Stream<Item = Result<String>> + 'static,
     F: FnOnce(Reply) + 'static,
 {
@@ -150,6 +162,13 @@ where
     add_dismiss(&window, Rc::clone(&touched));
     add_copy_shortcut(&window, &translation, &source, &status);
 
+    // A known source (text input) shows immediately rather than waiting for a
+    // stream that will never carry one — nothing left to wait on for it.
+    if let Some(text) = &known_source {
+        source.set_label(text);
+        source_row.set_visible(true);
+    }
+
     window.present();
     let bubble = Bubble {
         translation,
@@ -157,7 +176,7 @@ where
         source_row,
         status,
     };
-    consume(&window, deltas, bubble, touched, on_done);
+    consume(&window, known_source, deltas, bubble, touched, on_done);
 }
 
 /// The bubble's content widgets, threaded through as one value rather than
@@ -306,6 +325,7 @@ fn selected_text(label: &gtk4::Label) -> Option<String> {
 
 fn consume<S, F>(
     window: &gtk4::ApplicationWindow,
+    known_source: Option<String>,
     deltas: S,
     bubble: Bubble,
     touched: Rc<Cell<bool>>,
@@ -317,7 +337,10 @@ fn consume<S, F>(
     let window = window.clone();
     glib::spawn_future_local(async move {
         let mut deltas = std::pin::pin!(deltas);
-        let mut reply = Reply::new();
+        let mut reply = match known_source {
+            Some(source) => Reply::with_source(source),
+            None => Reply::new(),
+        };
 
         while let Some(delta) = deltas.next().await {
             match delta {
