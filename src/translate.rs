@@ -16,10 +16,14 @@ pub const SEPARATOR: char = '⁂';
 pub fn system_prompt(target_lang: &str, fallback_lang: &str) -> String {
     let fallback = fallback_lang.trim();
     let same_language_rule = if fallback.is_empty() {
-        format!("- If the source is already in {target_lang}, repeat it unchanged.")
+        format!(
+            "- If the source is already written in {target_lang} — judged by its \
+grammar, not merely by sharing characters with it — repeat it unchanged."
+        )
     } else {
         format!(
-            "- If the source is already in {target_lang}, translate it into {fallback} \
+            "- If the source is already written in {target_lang} — judged by its \
+grammar, not merely by sharing characters with it — translate it into {fallback} \
 instead. Give only the translation; do not mention the change of language."
         )
     };

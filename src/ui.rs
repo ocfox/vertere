@@ -117,15 +117,6 @@ where
         .build();
     translation.add_css_class("translation");
 
-    let copy = gtk4::Button::from_icon_name("edit-copy-symbolic");
-    copy.add_css_class("flat");
-    copy.set_valign(gtk4::Align::Start);
-    copy.set_tooltip_text(Some("Copy the translation"));
-
-    let translation_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    translation_row.append(&translation);
-    translation_row.append(&copy);
-
     let source = gtk4::Label::builder()
         .wrap(true)
         .selectable(true)
@@ -143,31 +134,9 @@ where
     let status = gtk4::Label::builder().xalign(0.0).visible(false).build();
     status.add_css_class("status");
 
-    copy.connect_clicked({
-        let translation = translation.clone();
-        let status = status.clone();
-        move |_| {
-            if let Some(display) = gdk::Display::default() {
-                display.clipboard().set_text(&translation.label());
-            }
-            show_status(&status, "Copied");
-            glib::timeout_add_local_once(Duration::from_secs(1), {
-                let status = status.clone();
-                // Guarded rather than unconditional: a later status (e.g. a
-                // stream error, though unlikely by the time copy is clickable)
-                // must not be hidden by a timer meant for this one.
-                move || {
-                    if status.label() == "Copied" {
-                        status.set_visible(false);
-                    }
-                }
-            });
-        }
-    });
-
     let bubble = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
     bubble.add_css_class("bubble");
-    bubble.append(&translation_row);
+    bubble.append(&translation);
     bubble.append(&source_row);
     bubble.append(&status);
     window.set_child(Some(&bubble));
@@ -179,6 +148,7 @@ where
     place(&window);
     add_drag(&window, Rc::clone(&touched));
     add_dismiss(&window, Rc::clone(&touched));
+    add_copy_shortcut(&window, &translation, &source, &status);
 
     window.present();
     let bubble = Bubble {
@@ -290,6 +260,50 @@ fn add_dismiss(window: &gtk4::ApplicationWindow, touched: Rc<Cell<bool>>) {
     window.add_controller(motion);
 }
 
+/// Copies the selected text on Ctrl+C, or the whole translation if nothing is
+/// selected.
+///
+/// GtkLabel normally binds Ctrl+C itself, but only while focused, and the
+/// labels here are `focusable(false)` (see the comment on the `label >
+/// selection` CSS rule), so the shortcut is wired up at the window instead.
+fn add_copy_shortcut(
+    window: &gtk4::ApplicationWindow,
+    translation: &gtk4::Label,
+    source: &gtk4::Label,
+    status: &gtk4::Label,
+) {
+    let keys = gtk4::EventControllerKey::new();
+    keys.connect_key_pressed({
+        let translation = translation.clone();
+        let source = source.clone();
+        let status = status.clone();
+        move |_, key, _, modifiers| {
+            if key == gdk::Key::c && modifiers == gdk::ModifierType::CONTROL_MASK {
+                let text = selected_text(&translation)
+                    .or_else(|| selected_text(&source))
+                    .unwrap_or_else(|| translation.label().to_string());
+                copy_to_clipboard(&text, &status);
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        }
+    });
+    window.add_controller(keys);
+}
+
+/// The label's selected text, or `None` if there is no selection.
+fn selected_text(label: &gtk4::Label) -> Option<String> {
+    let (start, end) = label.selection_bounds()?;
+    (start != end).then(|| {
+        label
+            .text()
+            .chars()
+            .skip(start as usize)
+            .take((end - start) as usize)
+            .collect()
+    })
+}
+
 fn consume<S, F>(
     window: &gtk4::ApplicationWindow,
     deltas: S,
@@ -335,6 +349,25 @@ fn consume<S, F>(
 fn show_status(status: &gtk4::Label, text: &str) {
     status.set_label(text);
     status.set_visible(true);
+}
+
+/// Copies `text` to the clipboard and flashes a status message.
+fn copy_to_clipboard(text: &str, status: &gtk4::Label) {
+    if let Some(display) = gdk::Display::default() {
+        display.clipboard().set_text(text);
+    }
+    show_status(status, "Copied");
+    glib::timeout_add_local_once(Duration::from_secs(1), {
+        let status = status.clone();
+        // Guarded rather than unconditional: a later status (e.g. a
+        // stream error, though unlikely by the time copy is clickable)
+        // must not be hidden by a timer meant for this one.
+        move || {
+            if status.label() == "Copied" {
+                status.set_visible(false);
+            }
+        }
+    });
 }
 
 /// Dismisses the window once the reply is settled, unless it was touched.
