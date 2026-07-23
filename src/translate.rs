@@ -15,26 +15,28 @@ pub const SEPARATOR: char = '⁂';
 /// the user pick it on every keystroke.
 pub fn system_prompt(target_lang: &str, fallback_lang: &str) -> String {
     let fallback = fallback_lang.trim();
-    let same_language_rule = if fallback.is_empty() {
-        format!(
-            "- If the source is already written in {target_lang} — judged by its \
-grammar, not merely by sharing characters with it — repeat it unchanged."
-        )
+    // Part of the opening directive rather than a rule buried in the list
+    // further down: the exception competes with "translate into {target_lang}"
+    // for the model's attention, and loses when it is not stated in the same
+    // breath as the rule it is an exception to.
+    let exception = if fallback.is_empty() {
+        "repeat it unchanged".to_string()
     } else {
-        format!(
-            "- If the source is already written in {target_lang} — judged by its \
-grammar, not merely by sharing characters with it — translate it into {fallback} \
-instead. Give only the translation; do not mention the change of language."
-        )
+        format!("translate it into {fallback} instead")
     };
+    let directive = format!(
+        "You translate text into {target_lang}, unless the source is already \
+written in {target_lang} — judged by its grammar, not merely by sharing \
+characters with it — in which case you {exception}."
+    );
 
     // The translation comes first so the user sees it while the transcription is
     // still arriving; the transcription earns its keep by making history
     // searchable and re-translatable without a separate OCR pass.
     format!(
         "\
-You translate text into {target_lang}. The text reaches you either as an image \
-of a screen region or as plain text.
+{directive} The text reaches you either as an image of a screen region or as \
+plain text.
 
 Reply with exactly two sections, separated by a line containing only {SEPARATOR}:
 
@@ -47,7 +49,7 @@ Rules:
 - Preserve line breaks and paragraph structure in both sections.
 - Transcribe the source in its original language, keeping its spelling and \
 punctuation. Do not correct it.
-{same_language_rule}
+- Give only the translation; do not mention which language it ended up in or why.
 - If there is no readable text at all, write a single hyphen as the translation \
 and leave the source section empty."
     )
