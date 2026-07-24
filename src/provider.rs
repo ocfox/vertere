@@ -70,7 +70,7 @@ impl Provider {
         let Some(model) = models.iter().find(|m| m.id == self.model) else {
             bail!("no such model: {}", self.model);
         };
-        if !accepts_images(model) {
+        if accepts_images(model) == Some(false) {
             bail!("model {} does not accept image input", self.model);
         }
         Ok(())
@@ -152,13 +152,16 @@ fn with_read_timeout(
     })
 }
 
-fn accepts_images(model: &openrouter_rs::api::models::Model) -> bool {
+/// `None` means the endpoint gave no modality metadata, not that images are
+/// refused: many local/proxy servers omit it while still accepting images, so
+/// the caller treats only an explicit `Some(false)` as grounds to reject.
+fn accepts_images(model: &openrouter_rs::api::models::Model) -> Option<bool> {
     let arch = &model.architecture;
     if let Some(modalities) = &arch.input_modalities {
-        return modalities.iter().any(|m| m.eq_ignore_ascii_case("image"));
+        return Some(modalities.iter().any(|m| m.eq_ignore_ascii_case("image")));
     }
     // Older entries only carry the combined form, e.g. `text+image->text`.
     arch.modality
         .as_deref()
-        .is_some_and(|m| m.split("->").next().is_some_and(|i| i.contains("image")))
+        .map(|m| m.split("->").next().is_some_and(|i| i.contains("image")))
 }
