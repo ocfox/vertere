@@ -8,7 +8,7 @@ Translation is done by a multimodal model through any OpenAI-compatible API —
 model as an image, and it returns both the translation and a transcription of
 the source text.
 
-<img width="3840" height="2160" alt="vertere" src="https://github.com/user-attachments/assets/39409a81-046f-4735-a956-31a4694d3a4c" />
+<img width="3840" height="2160" alt="vertere" src="https://github.com/user-attachments/assets/182ecd24-b2ca-449f-a3a6-f770134fb953" />
 
 ## Requirements
 
