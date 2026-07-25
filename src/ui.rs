@@ -1,6 +1,6 @@
 //! The floating translation bubble.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -23,6 +23,28 @@ const ASSUMED_HEIGHT: i32 = 200;
 const LINGER: Duration = Duration::from_secs(8);
 /// How long typing has to settle before the history search re-queries.
 const SEARCH_DELAY_MS: u32 = 200;
+
+/// The history window with the closure that re-queries its list: a reopen has to
+/// re-run the search, or translations recorded since the window was built stay
+/// invisible.
+type HistorySlot = RefCell<Option<(glib::WeakRef<gtk4::ApplicationWindow>, Rc<dyn Fn()>)>>;
+
+// Only the settings and history windows are tracked. Bubbles are deliberately
+// not: each translation gets its own, and one still on screen is something the
+// user may still be reading.
+thread_local! {
+    static SETTINGS: RefCell<Option<glib::WeakRef<gtk4::ApplicationWindow>>> =
+        const { RefCell::new(None) };
+    static HISTORY: HistorySlot = const { RefCell::new(None) };
+}
+
+/// The settings window, if it is still open.
+///
+/// Held weakly: closing a window disposes it, so an upgrade that fails is what
+/// tells "closed" apart from "never opened".
+fn open_settings() -> Option<gtk4::ApplicationWindow> {
+    SETTINGS.with(|slot| slot.borrow().as_ref().and_then(glib::WeakRef::upgrade))
+}
 
 const CSS: &str = "
 window.vertere {
@@ -412,6 +434,15 @@ fn linger(window: gtk4::ApplicationWindow, touched: Rc<Cell<bool>>) {
 pub fn show_settings(application: &gtk4::Application, settings: Settings) {
     ensure_css_loaded();
 
+    // `settings` is deliberately dropped when a window is already up: its fields
+    // may hold edits that are not saved yet, and refilling them from the store
+    // would throw that work away to show what the user is in the middle of
+    // changing.
+    if let Some(window) = open_settings() {
+        window.present();
+        return;
+    }
+
     let window = gtk4::ApplicationWindow::builder()
         .application(application)
         .title("Vertere settings")
@@ -544,6 +575,7 @@ pub fn show_settings(application: &gtk4::Application, settings: Settings) {
 
     close_on_escape(&window);
     window.present();
+    SETTINGS.with(|slot| *slot.borrow_mut() = Some(window.downgrade()));
 }
 
 fn entry(value: &str, placeholder: &str) -> gtk4::Entry {
@@ -589,6 +621,12 @@ pub fn show_history(
     delete: impl Fn(i64) -> Result<()> + 'static,
 ) {
     ensure_css_loaded();
+
+    if let Some((window, reload)) = open_history() {
+        reload();
+        window.present();
+        return;
+    }
 
     let window = gtk4::ApplicationWindow::builder()
         .application(application)
@@ -663,6 +701,22 @@ pub fn show_history(
 
     close_on_escape(&window);
     window.present();
+    // Re-runs whatever is in the search box rather than resetting it, so a reopen
+    // keeps the filter the user left behind while still picking up newer rows.
+    let reload: Rc<dyn Fn()> = Rc::new({
+        let query = query.clone();
+        move || refresh(query.text().as_str())
+    });
+    HISTORY.with(|slot| *slot.borrow_mut() = Some((window.downgrade(), reload)));
+}
+
+/// The history window and the closure that re-queries it, if it is still open.
+fn open_history() -> Option<(gtk4::ApplicationWindow, Rc<dyn Fn()>)> {
+    HISTORY.with(|slot| {
+        let slot = slot.borrow();
+        let (window, reload) = slot.as_ref()?;
+        Some((window.upgrade()?, Rc::clone(reload)))
+    })
 }
 
 fn history_row(
