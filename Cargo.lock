@@ -2200,6 +2200,7 @@ dependencies = [
  "async-channel",
  "base64",
  "futures-util",
+ "gdk-pixbuf",
  "gio",
  "gtk4",
  "gtk4-layer-shell",

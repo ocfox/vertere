@@ -13,6 +13,7 @@ anyhow = "1"
 async-channel = "2"
 base64 = "0.22"
 futures-util = "0.3"
+gdk-pixbuf = "0.22"
 gio = { version = "0.22", features = ["v2_88"] }
 gtk4 = { version = "0.11", features = ["v4_22"] }
 gtk4-layer-shell = { version = "0.8", features = ["v1_3"] }
