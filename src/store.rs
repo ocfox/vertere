@@ -142,6 +142,13 @@ impl Store {
     }
 
     fn from_connection(db: Connection) -> Result<Self> {
+        // The daemon keeps one connection open for its lifetime, so the only
+        // contention left is another process on the same file — a second
+        // instance, or a `sqlite3` session. WAL lets that reader work while a
+        // write is in flight, and busy_timeout turns the remaining overlap into
+        // a short wait rather than an immediate `SQLITE_BUSY`.
+        db.pragma_update(None, "journal_mode", "WAL")?;
+        db.pragma_update(None, "busy_timeout", 5_000i32)?;
         db.pragma_update(None, "foreign_keys", true)?;
         let history = Self { db };
         history.migrate()?;

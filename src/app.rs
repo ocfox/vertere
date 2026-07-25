@@ -2,7 +2,6 @@
 
 use std::cell::RefCell;
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::{Context, Result, anyhow};
@@ -23,6 +22,10 @@ struct Session {
 /// Rebuilt rather than mutated: the provider bakes in the model and the prompt,
 /// so a settings change has to produce a new one.
 static SESSION: Mutex<Option<Arc<Session>>> = Mutex::new(None);
+
+/// One connection for the process. Opening per call paid for migrate checks and
+/// page-cache warm-up on every settings read and history write.
+static STORE: Mutex<Option<Store>> = Mutex::new(None);
 
 thread_local! {
     static HOLD: RefCell<Option<gtk4::gio::ApplicationHoldGuard>> = const { RefCell::new(None) };
@@ -45,16 +48,20 @@ fn database() -> Result<PathBuf> {
     Ok(xdg::data_dir()?.join("vertere.db"))
 }
 
-fn open_store() -> Result<Store> {
-    Store::open(&database()?).context("cannot open the database")
+fn with_store<R>(f: impl FnOnce(&mut Store) -> Result<R>) -> Result<R> {
+    let mut guard = STORE.lock().expect("store lock poisoned");
+    if guard.is_none() {
+        *guard = Some(Store::open(&database()?).context("cannot open the database")?);
+    }
+    f(guard.as_mut().expect("store just inserted"))
 }
 
 pub fn settings() -> Result<Settings> {
-    open_store()?.settings()
+    with_store(|store| store.settings())
 }
 
 pub fn save_settings(settings: &Settings) -> Result<()> {
-    open_store()?.save_settings(settings)?;
+    with_store(|store| store.save_settings(settings))?;
     *SESSION.lock().expect("settings lock poisoned") = None;
     Ok(())
 }
@@ -173,30 +180,10 @@ pub fn test_connection(
 }
 
 pub fn history_window(application: &gtk4::Application) {
-    // Opened once and reused for every search and delete, rather than per
-    // action: the search box re-queries on each change, and a fresh
-    // connection per keystroke buys nothing but repeated migration checks.
-    let store = Rc::new(RefCell::new(open_store().map_err(|err| format!("{err:#}"))));
-
-    let search = {
-        let store = Rc::clone(&store);
-        // 200 rows is more than anyone scrolls; the search box is the way to
-        // reach anything older.
-        move |query: &str| {
-            store
-                .borrow()
-                .as_ref()
-                .map_err(|err| anyhow!("{err}"))?
-                .search(query, 200)
-        }
-    };
-    let delete = move |id: i64| {
-        store
-            .borrow_mut()
-            .as_mut()
-            .map_err(|err| anyhow!("{err}"))?
-            .delete(id)
-    };
+    // 200 rows is more than anyone scrolls; the search box is the way to
+    // reach anything older.
+    let search = |query: &str| with_store(|store| store.search(query, 200));
+    let delete = |id: i64| with_store(|store| store.delete(id));
 
     ui::show_history(application, search, delete);
 }
@@ -284,15 +271,16 @@ fn record(session: &Session, kind: Kind, reply: &Reply) -> Result<()> {
         return Ok(());
     }
 
-    let mut store = open_store()?;
-    store.add(&Record {
-        kind,
-        model: &session.settings.model,
-        target: session.settings.target(),
-        source: reply.source(),
-        translated: reply.translation(),
-    })?;
-    Ok(())
+    with_store(|store| {
+        store.add(&Record {
+            kind,
+            model: &session.settings.model,
+            target: session.settings.target(),
+            source: reply.source(),
+            translated: reply.translation(),
+        })?;
+        Ok(())
+    })
 }
 
 /// The window has already closed by the time history is written, so a failure
