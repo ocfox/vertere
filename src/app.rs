@@ -110,7 +110,11 @@ pub fn start_daemon(application: &gtk4::Application) -> Result<()> {
         && settings.is_usable()
         && let Ok(session) = session(settings)
     {
-        let _ = runtime().block_on(session.provider.check_model());
+        runtime().spawn(async move {
+            if let Err(err) = session.provider.check_model().await {
+                eprintln!("vertere: model check failed: {err:#}");
+            }
+        });
     }
     Ok(())
 }
