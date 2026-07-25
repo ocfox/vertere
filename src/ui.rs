@@ -21,6 +21,8 @@ const WIDTH: i32 = 420;
 const ASSUMED_HEIGHT: i32 = 200;
 /// How long a finished bubble stays before dismissing itself, if untouched.
 const LINGER: Duration = Duration::from_secs(8);
+/// How long typing has to settle before the history search re-queries.
+const SEARCH_DELAY_MS: u32 = 200;
 
 const CSS: &str = "
 window.vertere {
@@ -641,6 +643,9 @@ pub fn show_history(
     });
     refresh("");
 
+    // GtkSearchEntry already holds `search-changed` back until typing pauses, so
+    // debouncing the query is a property rather than timers of our own.
+    query.set_search_delay(SEARCH_DELAY_MS);
     query.connect_search_changed({
         let refresh = Rc::clone(&refresh);
         move |query| refresh(query.text().as_str())
