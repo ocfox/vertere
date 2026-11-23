@@ -27,6 +27,7 @@
             pkgs.gtk4
             pkgs.gtk4-layer-shell
             pkgs.libsoup_3
+            pkgs.glib-networking
             pkgs.json-glib
             pkgs.sqlite
             pkgs.glib
