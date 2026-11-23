@@ -4,10 +4,6 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";
-    rust-overlay = {
-      url = "github:oxalica/rust-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
   outputs =
@@ -15,13 +11,14 @@
     let
       mkVertere =
         pkgs:
-        pkgs.rustPlatform.buildRustPackage {
+        pkgs.stdenv.mkDerivation {
           pname = "vertere";
-          version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
+          version = "0.1.0";
           src = pkgs.lib.cleanSource ./.;
-          cargoLock.lockFile = ./Cargo.lock;
 
           nativeBuildInputs = [
+            pkgs.meson
+            pkgs.ninja
             pkgs.pkg-config
             pkgs.wrapGAppsHook4
           ];
@@ -29,18 +26,16 @@
           buildInputs = [
             pkgs.gtk4
             pkgs.gtk4-layer-shell
+            pkgs.libsoup_3
+            pkgs.json-glib
+            pkgs.sqlite
             pkgs.glib
-            pkgs.cairo
-            pkgs.pango
             pkgs.gdk-pixbuf
-            pkgs.graphene
             pkgs.wayland
           ];
 
-          postInstall = ''
-            mkdir -p $out/share
-            cp -r data/applications data/icons -t $out/share/
-          '';
+          mesonBuildType = "release";
+          doCheck = true;
 
           preFixup = ''
             gappsWrapperArgs+=(
@@ -72,20 +67,7 @@
       perSystem =
         { system, ... }:
         let
-          pkgs = import inputs.nixpkgs {
-            inherit system;
-            overlays = [ inputs.rust-overlay.overlays.default ];
-          };
-
-          rustToolchain = pkgs.rust-bin.stable.latest.default.override {
-            extensions = [
-              "rust-src"
-              "rust-analyzer"
-              "clippy"
-              "rustfmt"
-            ];
-          };
-
+          pkgs = import inputs.nixpkgs { inherit system; };
           vertere = mkVertere pkgs;
         in
         {
@@ -93,18 +75,15 @@
 
           devShells.default = pkgs.mkShell {
             inputsFrom = [ vertere ];
+            hardeningDisable = [ "fortify" ];
 
             packages = [
-              rustToolchain
+              pkgs.clang
+              pkgs.clang-tools
               pkgs.grim
               pkgs.slurp
               pkgs.wl-clipboard
             ];
-
-            env = {
-              RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
-              RUST_BACKTRACE = "1";
-            };
           };
 
           formatter = pkgs.nixfmt-tree;
